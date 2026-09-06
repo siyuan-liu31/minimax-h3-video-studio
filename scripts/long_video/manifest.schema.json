@@ -96,7 +96,7 @@
         "profile_id": { "type": "string", "minLength": 1, "maxLength": 200 },
         "profile_version": { "type": "string", "minLength": 1, "maxLength": 200 },
         "profile_digest": { "$ref": "#/$defs/sha256" },
-        "references": { "type": "array", "maxItems": 6, "items": { "$ref": "#/$defs/reference" } }
+        "references": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/reference" } }
       },
       "anyOf": [
         { "required": ["prompt"] },

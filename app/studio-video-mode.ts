@@ -1,4 +1,5 @@
 export const VIDEO_DIRECTOR_MODES = ["auto", "t2v", "i2v", "fl2v", "r2v", "v2v", "rv2v"] as const;
+export const H3_MAX_REFERENCE_FILES = 12;
 
 export type VideoDirectorMode = typeof VIDEO_DIRECTOR_MODES[number];
 export type VideoLowLevelMode = "text" | "fl2va" | "ref2va";
@@ -80,7 +81,13 @@ export function buildVideoDirectorContract(
   const orderedAssets = source ? [source, ...references] : [...references];
   const errors: string[] = [];
 
-  if (assets.length > 6) errors.push("H3 单任务最多连接 6 个素材。");
+  if (assets.length > H3_MAX_REFERENCE_FILES) errors.push(`H3 单任务最多连接 ${H3_MAX_REFERENCE_FILES} 个参考文件。`);
+  const imageCount = assets.filter((asset) => asset.kind === "image").length;
+  const videoCount = assets.filter((asset) => asset.kind === "video").length;
+  const audioCount = assets.filter((asset) => asset.kind === "audio").length + assets.filter((asset) => asset.kind === "video" && asset.includeAudio).length;
+  if (imageCount > 9) errors.push("H3 单任务最多连接 9 张图片。");
+  if (videoCount > 3) errors.push("H3 单任务最多连接 3 个视频。");
+  if (audioCount > 3) errors.push("H3 单任务最多连接 3 个音频输入（含视频配对音轨）。");
   if (resolvedMode === "t2v" && assets.length) errors.push("T2V 不能连接参考素材；请断开素材或切换创作模式。");
   if (resolvedMode === "i2v" && (assets.length !== 1 || assets[0]?.kind !== "image")) errors.push("I2V 需要且只允许一张连接到 H3 Video 的图片。");
   if (resolvedMode === "fl2v") {

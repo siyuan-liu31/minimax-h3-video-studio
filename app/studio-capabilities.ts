@@ -18,6 +18,7 @@ export type ProfileCapability = {
   output_type: "video" | "image";
   compiler: string;
   manifest_sha256: string;
+  compatible_identities?: Array<{ version: string; manifest_sha256: string }>;
   sampling_mode?: "turbo4" | "base" | "default";
   input_modalities: string[];
   available: boolean;
@@ -57,9 +58,9 @@ export type ImageReferencePolicy = {
   source: "capability" | "limits" | "legacy-adapter";
 };
 
-// MiniMax H3 Video Studio keeps every task inside the repository-wide six-reference budget,
-// even when a future model advertises a larger native context window.
-export const STUDIO_REFERENCE_BUDGET = 6;
+// Upper envelope for mixed H3 references. Individual image profiles remain
+// constrained by their own advertised reference_contract/limits.
+export const STUDIO_REFERENCE_BUDGET = 12;
 
 function finiteCount(value: unknown): number | undefined {
   const count = Number(value);

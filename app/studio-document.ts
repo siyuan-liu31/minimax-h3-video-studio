@@ -16,7 +16,7 @@ export const H3_CANVAS_FPS = 24;
 export const H3_MIN_DURATION_FRAMES = 124;
 export const H3_MAX_DURATION_FRAMES = 362;
 export const H3_MAX_DURATION_SECONDS = H3_MAX_DURATION_FRAMES / H3_CANVAS_FPS;
-export const H3_REFERENCE_BUDGET = 6;
+export const H3_REFERENCE_BUDGET = 12;
 export const H3_REFERENCE_CAPACITY = { image: 9, video: 3, audio: 3 } as const;
 
 export type XY = { x: number; y: number };
@@ -617,7 +617,8 @@ export function validateCanvasDocument(document: CanvasDocumentV7): DocumentIssu
     for (const binding of node.bindings) {
       if (!nodeIds.has(binding.sourceNodeId)) issues.push({ code: "dangling-binding", nodeId: node.id, bindingId: binding.id, message: "素材绑定指向不存在的节点。" });
     }
-    if (node.bindings.length > H3_REFERENCE_BUDGET) issues.push({ code: "reference-budget-exceeded", nodeId: node.id, message: `已绑定 ${node.bindings.length} 个媒体输入，超过最多 ${H3_REFERENCE_BUDGET} 个的限制。` });
+    const referenceFiles = new Set(node.bindings.map((binding) => binding.sourceNodeId)).size;
+    if (referenceFiles > H3_REFERENCE_BUDGET) issues.push({ code: "reference-budget-exceeded", nodeId: node.id, message: `已绑定 ${referenceFiles} 个参考文件，超过最多 ${H3_REFERENCE_BUDGET} 个的限制。` });
     for (const kind of ["image", "video", "audio"] as const) {
       const count = node.bindings.filter((binding) => binding.kind === kind).length;
       if (count > H3_REFERENCE_CAPACITY[kind]) issues.push({ code: "media-capacity-exceeded", nodeId: node.id, message: `${kind} 输入 ${count} 个，超过容量 ${H3_REFERENCE_CAPACITY[kind]}。` });

@@ -205,10 +205,10 @@ test("dangling bindings and reference overflow are preserved and visibly marked 
   }));
   const repaired = migrateCanvasDocument(document);
   const repairedVideo = repaired.nodes.find((node) => node.kind === "video-generator");
-  assert.equal(repairedVideo.bindings.length, 7, "migration must not discard user bindings");
+  assert.equal(repairedVideo.bindings.length, H3_REFERENCE_BUDGET + 1, "migration must not discard user bindings");
   assert.ok(repairedVideo.repairFlags.some((flag) => flag.code === "dangling-binding"));
   assert.ok(repairedVideo.repairFlags.some((flag) => flag.code === "reference-budget-exceeded"));
-  assert.match(validateCanvasDocument(repaired).map((item) => item.message).join("\n"), /超过最多 6/);
+  assert.match(validateCanvasDocument(repaired).map((item) => item.message).join("\n"), /超过最多 12/);
 });
 
 test("V7 migration and serialization are idempotent", () => {
@@ -232,16 +232,15 @@ test("H3 uses integer frames as truth: 15.1 seconds rounds to the supported 362-
   assert.ok(validateCanvasDocument(document).some((issue) => issue.code === "duration-exceeded"));
 });
 
-test("exactly six total references are accepted but the seventh is rejected independent of modality", () => {
+test("exactly twelve distinct reference files are accepted but the thirteenth is rejected", () => {
   const document = createDefaultCanvasDocument(ids("budget"));
   const video = document.nodes.find((node) => node.kind === "video-generator");
   video.bindings = [
-    ...Array.from({ length: 3 }, (_, index) => ({ id: `p-${index}`, kind: "image", slot: index + 1, sourceNodeId: document.nodes[1].id, sourceOutputHandle: "image", role: "reference" })),
-    ...Array.from({ length: 2 }, (_, index) => ({ id: `v-${index}`, kind: "video", slot: index + 1, sourceNodeId: document.nodes[1].id, sourceOutputHandle: "video", role: "reference" })),
-    { id: "a-0", kind: "audio", slot: 1, sourceNodeId: document.nodes[1].id, sourceOutputHandle: "audio", role: "reference" },
+    ...Array.from({ length: 9 }, (_, index) => ({ id: `p-${index}`, kind: "image", slot: index + 1, sourceNodeId: `picture-${index}`, sourceOutputHandle: "image", role: "reference" })),
+    ...Array.from({ length: 3 }, (_, index) => ({ id: `a-${index}`, kind: "audio", slot: index + 1, sourceNodeId: `audio-${index}`, sourceOutputHandle: "audio", role: "reference" })),
   ];
   assert.equal(validateCanvasDocument(document).some((issue) => issue.code === "reference-budget-exceeded"), false);
-  video.bindings.push({ id: "a-1", kind: "audio", slot: 2, sourceNodeId: document.nodes[1].id, sourceOutputHandle: "audio", role: "reference" });
+  video.bindings.push({ id: "v-0", kind: "video", slot: 1, sourceNodeId: "video-0", sourceOutputHandle: "video", role: "reference" });
   assert.equal(validateCanvasDocument(document).some((issue) => issue.code === "reference-budget-exceeded"), true);
 });
 

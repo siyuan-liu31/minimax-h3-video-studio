@@ -201,7 +201,10 @@ class CheckpointManager:
         policy = self.profile_policy(profile)
         if not policy:
             return {}
-        if parameters.get("profile_version") != profile.version or parameters.get("profile_digest") != profile.digest():
+        if not profile.accepts_identity(
+            str(parameters.get("profile_version", "")),
+            str(parameters.get("profile_digest", "")),
+        ):
             return {}
         return policy
 
@@ -270,7 +273,10 @@ class CheckpointManager:
         profile = self.registry.get(str(parameters.get("profile_id", "")))
         if not self.profile_policy(profile):
             raise ApiError(409, "resume_unsupported", "the current Profile does not support resumable sampling")
-        if parameters.get("profile_version") != profile.version or parameters.get("profile_digest") != profile.digest():
+        if not profile.accepts_identity(
+            str(parameters.get("profile_version", "")),
+            str(parameters.get("profile_digest", "")),
+        ):
             raise ApiError(409, "checkpoint_profile_changed", "the Profile identity changed after checkpoint creation")
         model_role = "ref_model" if profile.compiler == "h3_ref" else "fl_model"
         expected_model = profile.model_bindings.get(model_role, str(getattr(self.config, model_role)))

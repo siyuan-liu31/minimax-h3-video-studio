@@ -219,7 +219,7 @@ const ENGLISH_COPY: Readonly<Record<string, string>> = {
   "引用": "References",
   "引用素材": "Reference Media",
   "参考素材": "Reference Media",
-  "H3 容量：Picture 9 / Video 3 / Audio 3；本项目单次最多绑定 6 个素材。": "H3 capacity: Picture 9 / Video 3 / Audio 3; this project binds at most 6 media items per run.",
+  "H3 容量：Picture 9 / Video 3 / Audio 3；混合输入合计最多 12 个文件，视频配对音轨不重复计文件数。": "H3 capacity: Picture 9 / Video 3 / Audio 3; mixed inputs allow up to 12 files, and a video's paired soundtrack does not count as a second file.",
   "H3 参考素材槽位": "H3 Reference Slots",
   "点击空槽从资产选择": "Click an empty slot to choose from Assets",
   "已用": "Used",

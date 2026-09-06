@@ -133,6 +133,22 @@ class CheckpointStorageTests(unittest.TestCase):
         self.assertEqual(result["manifests"], 1)
         self.assertFalse(path.exists())
 
+    def test_reviewed_legacy_ref_profile_identity_keeps_checkpoint_resume_compatible(self) -> None:
+        profile = DEFAULT_REGISTRY.get("minimax-h3-ref2va-base-resumable")
+        legacy_version, legacy_digest = profile.compatible_identities[0]
+        self.job["parameters"].update({
+            "profile_id": profile.id,
+            "profile_version": legacy_version,
+            "profile_digest": legacy_digest,
+        })
+        self.job["workflow_evidence"]["diffusion_model"] = self.config.ref_model
+        self.jobs.put(self.job_id, self.job)
+        manifest = self.manager.capture(self.job, self._record("legacy.latent", b"legacy"))
+        self.assertIsNotNone(manifest)
+        resumed = self.manager.build_spec(self.job, steps=9)
+        self.assertEqual(resumed.profile_version, profile.version)
+        self.assertEqual(resumed.profile_digest, profile.digest())
+
 
 class ResumeApiTests(unittest.TestCase):
     def setUp(self) -> None:

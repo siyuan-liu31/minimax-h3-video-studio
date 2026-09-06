@@ -25,9 +25,9 @@ test("Director compatibility lock pins the reviewed Apache-2.0 source and five s
   assert.equal(contract.optional_models[0].default_enabled, false);
 });
 
-test("Director adapter rejects aggregate references above six and generated segments above 362 frames", () => {
+test("Director adapter rejects aggregate references above twelve and generated segments above 362 frames", () => {
   const tooManyRefs = mutated((value) => {
-    value.constraints.max_total_references = 7;
+    value.constraints.max_total_references = 13;
   });
   const tooManyFrames = mutated((value) => {
     value.constraints.max_generated_segment_frames = 363;

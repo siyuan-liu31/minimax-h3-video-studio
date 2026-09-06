@@ -229,7 +229,7 @@ MiniMax H3 Video Studio 的画布只表达受类型约束的创作意图，不�
   "required_models": ["ref_model", "text_encoder", "video_vae", "audio_vae", "ref_lora"],
   "parameter_schema": {"duration": "number", "steps": "integer", "lora_strength": "number"},
   "defaults": {"duration": 5.1667, "steps": 4, "lora_strength": 0.75},
-  "limits": {"duration": [5, 15.083333333333334], "references": 6, "steps": [4, 50], "lora_strength": [0, 2]},
+  "limits": {"duration": [5, 15.083333333333334], "references": 12, "steps": [4, 50], "lora_strength": [0, 2]},
   "model_bindings": {"ref_model": "my-folder/my-ref-model.safetensors"}
 }
 ```

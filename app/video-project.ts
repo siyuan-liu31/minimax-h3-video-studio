@@ -1,4 +1,5 @@
 export type ContinuationMode = "none" | "tail_frame" | "previous_video" | "motion_context";
+export const H3_MAX_REFERENCE_FILES = 12;
 export type TimelineStatus = "draft" | "pending" | "submitting" | "queued" | "running" | "partial" | "stopping" | "stopped" | "canceled" | "stale" | "completed" | "failed" | "merging";
 
 export type TimelineParts = Record<string, string>;
@@ -137,6 +138,7 @@ export type TimelineProfile = {
   output_type: "video" | "image";
   compiler: string;
   manifest_sha256: string;
+  compatible_identities?: Array<{ version: string; manifest_sha256: string }>;
   sampling_mode?: "turbo4" | "base" | "default";
   available: boolean;
   defaults: Record<string, string | number>;
@@ -191,7 +193,10 @@ export function timelineProfileKey(profile: Pick<TimelineProfile, "id" | "versio
 
 /** Resolve exact versioned values while accepting old saved id-only selections. */
 export function findTimelineProfile(profiles: TimelineProfile[], selection: string, version?: string): TimelineProfile | undefined {
-  if (version) return profiles.find((profile) => profile.id === selection && profile.version === version);
+  if (version) return profiles.find((profile) => (
+    profile.id === selection
+    && (profile.version === version || profile.compatible_identities?.some((identity) => identity.version === version))
+  ));
   const exact = profiles.find((profile) => timelineProfileKey(profile) === selection);
   return exact ?? profiles.find((profile) => profile.id === selection);
 }
@@ -299,7 +304,7 @@ export function appendTimelineReference(
   continuation: ContinuationMode,
 ): TimelineReference[] {
   if (references.some((reference) => (reference.asset_id ?? reference.id) === asset.id)) return references;
-  const maximum = continuation === "none" ? 6 : 5;
+  const maximum = continuation === "none" ? H3_MAX_REFERENCE_FILES : H3_MAX_REFERENCE_FILES - 1;
   if (references.length >= maximum || (continuation === "tail_frame" && (asset.kind !== "image" || references.length > 0))) return references;
   // In preserve_tags_only mode the media kind controls only the H3 tag
   // family.  Do not silently turn a video into motion transfer or audio into
@@ -878,7 +883,7 @@ export function validateVideoProject(project: VideoProject, profiles: TimelinePr
       return;
     }
     if (segment.media_source) errors.push(`${label} generation segment cannot contain a direct media source`);
-    const profile = profiles.find((item) => item.id === segment.request.profile_id && item.version === segment.request.profile_version);
+    const profile = findTimelineProfile(profiles, segment.request.profile_id, segment.request.profile_version);
     if (!segment.request.prompt.trim()) errors.push(`${label} needs a prompt`);
     const duration = Number(segment.request.parameters.duration);
     const allowedDurations = profileDurationOptions(profile);
@@ -913,7 +918,7 @@ export function validateVideoProject(project: VideoProject, profiles: TimelinePr
       if (range.fps !== H3_GENERATION_FPS || !Number.isInteger(range.start_frame) || !Number.isInteger(range.end_frame) || range.start_frame < 0 || range.end_frame <= range.start_frame || range.end_frame > previousFrames || range.end_frame - range.start_frame > H3_MAX_CONTINUATION_FRAMES) errors.push(`${label} continuation range must be 1..${H3_MAX_CONTINUATION_FRAMES} frames within the previous video at ${H3_GENERATION_FPS}fps`);
     }
     const referenceBudget = segment.request.references.length + (["tail_frame", "previous_video"].includes(segment.continuation) ? 1 : 0) + (segment.source_range ? 1 : 0);
-    if (referenceBudget > 6) errors.push(`${label} exceeds the six references budget including continuation`);
+    if (referenceBudget > H3_MAX_REFERENCE_FILES) errors.push(`${label} exceeds the ${H3_MAX_REFERENCE_FILES}-file reference budget including continuation`);
     const ids = segment.request.references.map((reference) => reference.asset_id ?? reference.id ?? "");
     if (ids.some((id) => !ASSET_ID.test(id)) || new Set(ids).size !== ids.length) errors.push(`${label} has invalid or duplicate references`);
     if (segment.request.references.some((reference) => !reference.role)) errors.push(`${label} has a reference without a role`);
@@ -925,9 +930,11 @@ export function validateVideoProject(project: VideoProject, profiles: TimelinePr
     });
     const videoReferences = resolvedReferences.filter((item) => item.asset.kind === "video");
     const audioReferences = resolvedReferences.filter((item) => item.asset.kind === "audio");
+    const imageReferences = resolvedReferences.filter((item) => item.asset.kind === "image");
     const selectedVideoAudio = videoReferences.filter((item) => item.reference.include_audio);
     const implicitPreviousVideo = segment.continuation === "previous_video" ? 1 : 0;
     const implicitSourceVideo = segment.source_range ? 1 : 0;
+    if (imageReferences.length + (segment.continuation === "tail_frame" ? 1 : 0) > 9) errors.push(`${label} may use at most nine image references including continuation`);
     if (videoReferences.length + implicitPreviousVideo + implicitSourceVideo > 3) errors.push(`${label} may use at most three video references including continuation`);
     if (audioReferences.length + selectedVideoAudio.length > 3) errors.push(`${label} may use at most three selected audio references including video soundtracks`);
     if (resolvedReferences.length === segment.request.references.length && resolvedReferences.length > 0 && resolvedReferences.every((item) => item.asset.kind === "audio") && segment.continuation !== "previous_video" && !segment.source_range) errors.push(`${label} cannot use an audio-only H3 reference set`);

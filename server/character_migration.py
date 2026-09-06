@@ -377,7 +377,15 @@ def plan(
     profile = registry.get(profile_id)
     if profile.output_type != "video" or profile.compiler != "h3_ref":
         raise ApiError(400, "character_migration_profile", "profile_id must select an H3 Ref2VA Base or Turbo profile")
-    if data.get("profile_version") not in {None, "", profile.version} or data.get("profile_digest") not in {None, "", profile.digest()}:
+    requested_version = str(data.get("profile_version") or "")
+    requested_digest = str(data.get("profile_digest") or "")
+    identity_matches = (
+        profile.accepts_identity(requested_version, requested_digest)
+        if requested_version and requested_digest
+        else (not requested_version or profile.accepts_version(requested_version))
+        and (not requested_digest or profile.accepts_digest(requested_digest))
+    )
+    if not identity_matches:
         raise ApiError(409, "profile_version_mismatch", "profile_version/profile_digest no longer match the selected profile")
     if available_profiles is not None and profile.id not in available_profiles:
         raise ApiError(503, "profile_unavailable", f"profile_id {profile.id!r} is unavailable; install its required models and nodes")

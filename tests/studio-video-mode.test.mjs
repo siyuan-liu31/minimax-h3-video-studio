@@ -73,6 +73,10 @@ test("T2V, I2V, FL2V and R2V expose exact local reference errors", () => {
   assert.match(buildVideoDirectorContract("r2v", "", []).errors.join("\n"), /至少需要一个/);
   assert.match(buildVideoDirectorContract("r2v", "", [audio("a")]).errors.join("\n"), /不支持只有音频/);
   assert.equal(buildVideoDirectorContract("r2v", "", [image("a"), video("v"), audio("u")]).errors.length, 0);
+  assert.match(buildVideoDirectorContract("r2v", "", Array.from({ length: 10 }, (_, index) => image(`i${index}`))).errors.join("\n"), /最多连接 9 张图片/);
+  assert.match(buildVideoDirectorContract("r2v", "", [image("i"), ...Array.from({ length: 4 }, (_, index) => video(`v${index}`))]).errors.join("\n"), /最多连接 3 个视频/);
+  assert.match(buildVideoDirectorContract("r2v", "", [image("i"), ...Array.from({ length: 4 }, (_, index) => audio(`a${index}`))]).errors.join("\n"), /最多连接 3 个音频/);
+  assert.match(buildVideoDirectorContract("r2v", "", [image("i"), ...Array.from({ length: 3 }, (_, index) => ({ ...video(`v${index}`), includeAudio: true })), audio("a")]).errors.join("\n"), /最多连接 3 个音频/);
 });
 
 test("V2V and RV2V require an explicit connected source, put it first, and reject forbidden refs", () => {

@@ -628,8 +628,8 @@ func (s *Service) PrepareGeneration(ctx context.Context, input map[string]any) (
 		}
 		sourceReference["role"] = "motion"
 		resolvedRefs = append([]any{sourceReference}, others...)
-		if len(resolvedRefs) > 6 {
-			return nil, nil, contract.NewError("invalid_argument", "at most 6 total references are allowed including source_asset_id")
+		if len(resolvedRefs) > 12 {
+			return nil, nil, contract.NewError("invalid_argument", "H3 accepts at most 12 total reference files including source_asset_id")
 		}
 		for index, raw := range resolvedRefs {
 			raw.(map[string]any)["reference_index"] = index
@@ -644,8 +644,8 @@ func validateVideoShape(payload map[string]any, refs []any) error {
 	if mode != "t2v" && mode != "i2v" && mode != "fl2v" && mode != "r2v" && mode != "v2v" && mode != "rv2v" {
 		return contract.NewError("invalid_argument", "director_mode must be t2v, i2v, fl2v, r2v, v2v, or rv2v")
 	}
-	if len(refs) > 6 {
-		return contract.NewError("invalid_argument", "at most 6 total references are allowed")
+	if len(refs) > 12 {
+		return contract.NewError("invalid_argument", "H3 accepts at most 12 total reference files")
 	}
 	source := stringValue(payload["source_asset_id"], "")
 	first, last, other := 0, 0, 0

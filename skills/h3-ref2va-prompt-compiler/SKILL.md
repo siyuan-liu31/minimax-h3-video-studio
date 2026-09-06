@@ -25,6 +25,7 @@ Preserve intent. Do not add story events, dialogue, lyrics, visible text, charac
 
 1. Read [references/mode-routing.md](references/mode-routing.md) and internally choose the official H3 structure supported by the current intent and actual asset roles. Do not announce the internal mode unless the user asks.
 2. Build the label map from current upload/wiring order. Number `<Picture N>`, `<Video N>`, and `<Audio N>` independently by media type. `<Subject N>` denotes reusable visible content, not a file.
+   Enforce the H3 Ref2VA input contract: at most 9 images, 3 videos, 3 audio files, and 12 mixed files in total. A video's enabled soundtrack also consumes an Audio slot but does not count as a second file.
 3. Read [references/intent-optimization.md](references/intent-optimization.md) and translate the user's requested operation into explicit source-to-target relationships.
 4. For full-reference requests, read [references/ref2va-format.md](references/ref2va-format.md). For a source-video character/object identity replacement, also read [references/identity-migration.md](references/identity-migration.md) and use its empirically validated identity-migration profile instead of weakening the edit into generic transfer markers.
 5. Make the prompt concrete enough for H3 to understand the requested transformation while remaining neutral about unknown media content.

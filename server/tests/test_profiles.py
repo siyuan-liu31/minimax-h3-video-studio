@@ -65,13 +65,15 @@ class ProfileRegistryTests(unittest.TestCase):
 
     def test_registry_exposes_versioned_declarative_profiles(self) -> None:
         public = DEFAULT_REGISTRY.get("minimax-h3-ref2va").public()
-        self.assertEqual(public["version"], "1.2")
+        self.assertEqual(public["version"], "1.3")
         self.assertEqual(public["output_type"], "video")
         self.assertEqual(public["sampling_mode"], "turbo4")
         self.assertRegex(public["manifest_sha256"], r"^[0-9a-f]{64}$")
         self.assertEqual(public["manifest_sha256"], DEFAULT_REGISTRY.get("minimax-h3-ref2va").digest())
         self.assertIn("parameter_schema", public)
         self.assertIn("required_models", public)
+        self.assertEqual(public["limits"]["references"], 12)
+        self.assertEqual(public["reference_contract"]["max_count"], 12)
         for identifier in (
             "minimax-h3-fl2va", "minimax-h3-fl2va-base",
             "minimax-h3-fl2va-base-resumable",
@@ -83,6 +85,34 @@ class ProfileRegistryTests(unittest.TestCase):
                 self.assertEqual(video.parameter_schema["denoise"], "number")
                 self.assertEqual(video.defaults["denoise"], 1.0)
                 self.assertEqual(video.limits["denoise"], [0.05, 1])
+
+    def test_ref2va_profiles_accept_reviewed_pre_limit_upgrade_identities(self) -> None:
+        identities = {
+            "minimax-h3-ref2va": ("1.2", "d961eecd308a42dcf9730c1853dba9b8213284d69d75878d6865f5da1fd1465d"),
+            "minimax-h3-ref2va-base": ("1.2", "71bb15b0a310d743ed777dacd5c7d5e1ccc5ca2d943e3eea9deb2e800800b53c"),
+            "minimax-h3-ref2va-base-resumable": ("1.0", "451682da20ceb18f6d0f4ed08a0e7699625348b74e99bfd6d08d92620c7ce49b"),
+        }
+        for identifier, identity in identities.items():
+            with self.subTest(identifier=identifier):
+                profile = DEFAULT_REGISTRY.get(identifier)
+                self.assertTrue(profile.accepts_identity(*identity))
+                self.assertFalse(profile.accepts_identity(identity[0], "0" * 64))
+                self.assertTrue(profile.accepts_version(identity[0]))
+                self.assertTrue(profile.accepts_digest(identity[1]))
+                self.assertIn(
+                    {"version": identity[0], "manifest_sha256": identity[1]},
+                    profile.public()["compatible_identities"],
+                )
+        spec = parse_generation_request({
+            "type": "video", "prompt": "keep identity", "director_mode": "r2v",
+            "profile_id": "minimax-h3-ref2va",
+            "profile_version": identities["minimax-h3-ref2va"][0],
+            "profile_digest": identities["minimax-h3-ref2va"][1],
+            "assets": [{"id": "a" * 32, "role": "identity"}],
+        }, lookup)
+        self.assertEqual((spec.profile_version, spec.profile_digest), (
+            "1.3", DEFAULT_REGISTRY.get("minimax-h3-ref2va").digest(),
+        ))
 
     def test_flux2_klein_profile_is_unified_ordered_and_fixed_to_distilled_sampling(self) -> None:
         profile = DEFAULT_REGISTRY.get("flux2-klein-4b-fp8")
@@ -134,10 +164,10 @@ class ProfileRegistryTests(unittest.TestCase):
             default.id,
         )
 
-    def test_optional_license_metadata_is_safe_and_preserves_existing_profile_digests(self) -> None:
+    def test_optional_license_metadata_is_safe_and_current_profile_digest_is_stable(self) -> None:
         self.assertEqual(
             DEFAULT_REGISTRY.get("minimax-h3-ref2va").digest(),
-            "d961eecd308a42dcf9730c1853dba9b8213284d69d75878d6865f5da1fd1465d",
+            "cda098452f5b138ad604289d6a4786ecef57b7f43ab12a3f3581f4eb224c2fe4",
         )
         with self.assertRaisesRegex(ApiError, "license_url must use https"):
             self.load_manifest(self.manifest(license_url="javascript:alert(1)"))

@@ -36,7 +36,7 @@ Video flags:
   --first-frame LOCATOR --last-frame LOCATOR
   --source-video LOCATOR
   --ref LOCATOR | 'json:{"role":"ROLE","source":"LOCATOR"}'
-                                              Repeatable, unambiguous reference
+                                              Repeatable; H3 allows 12 files total
   --ref-dir 'json:{"role":"ROLE","path":"DIR"}'  Stable directory references
   --duration SECONDS --aspect-ratio RATIO --steps N --seed N
 
@@ -248,8 +248,12 @@ func (r *Runner) runGenerate(ctx context.Context, args []string) (any, error) {
 				referenceInputs = append([]referenceInput{{Role: "motion", Source: f.source, SourceVideo: true}}, referenceInputs...)
 			}
 		}
-		if len(referenceInputs) > 6 {
-			return nil, usage("at most 6 total references are allowed")
+		maximumReferences := 6
+		if kind == "video" {
+			maximumReferences = 12
+		}
+		if len(referenceInputs) > maximumReferences {
+			return nil, usage("at most %d total references are allowed", maximumReferences)
 		}
 		if kind == "video" {
 			if err := validateDirector(f.mode, referenceInputs); err != nil {

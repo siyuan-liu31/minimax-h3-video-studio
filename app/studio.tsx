@@ -22,7 +22,7 @@ import {
 import { VideoDirectorControls } from "./studio-video-mode-controls";
 import VideoTimeline from "./video-timeline";
 import { H3_GENERATION_FPS, H3_MAX_GENERATION_DURATION, H3_MAX_GENERATION_FRAMES } from "./video-project";
-import { CANVAS_DOCUMENT_VERSION, LEGACY_STORAGE_KEYS as DOCUMENT_LEGACY_STORAGE_KEYS, V7_STORAGE_KEY, createCanvasNode, parseCanvasDocument, serializeCanvasDocument, type CanvasDocumentV7, type CanvasNode, type ImageGeneratorNode, type NodeResult, type VideoGeneratorNode } from "./studio-document";
+import { CANVAS_DOCUMENT_VERSION, H3_REFERENCE_BUDGET, LEGACY_STORAGE_KEYS as DOCUMENT_LEGACY_STORAGE_KEYS, V7_STORAGE_KEY, createCanvasNode, parseCanvasDocument, serializeCanvasDocument, type CanvasDocumentV7, type CanvasNode, type ImageGeneratorNode, type NodeResult, type VideoGeneratorNode } from "./studio-document";
 import { buildGeneratorExecutionPlan, buildOutputCollectionPlan, compilePromptDocument, connectMedia, disconnectMedia, invalidateDownstreamGenerators } from "./studio-graph";
 import { CANVAS_WORKSPACE_BACKUP_KEY, CANVAS_WORKSPACE_STORAGE_KEY, addCanvasWorkspaceTab, commitCanvasWorkspaceStorage, createCanvasWorkspace, parseCanvasWorkspace, removeCanvasWorkspaceTab, serializeCanvasWorkspace, updateCanvasWorkspaceDocument, type CanvasWorkspaceV1 } from "./studio-workspace";
 import { assetPayloadFromStudio, studioAssetFromDocument } from "./studio-asset-roundtrip";
@@ -1237,9 +1237,7 @@ export default function Studio() {
     }
     if (connectTarget === "video") {
       if (targetConnectedAssets.some((node) => node.asset?.remoteId === item.id)) return true;
-      const targetDocument = canvasDocumentFromState(nodes, edges, generatorStatesRef.current, viewport).nodes.find((node) => node.id === resolvedTargetId);
-      const bindingCount = targetDocument?.kind === "video-generator" ? targetDocument.bindings.length : targetConnectedAssets.length;
-      if (bindingCount >= 6) { setNotice("H3 单任务最多连接 6 个参考绑定（包含视频配对音轨）。"); return false; }
+      if (targetConnectedAssets.length >= H3_REFERENCE_BUDGET) { setNotice(`H3 单任务最多连接 ${H3_REFERENCE_BUDGET} 个参考文件。`); return false; }
       if (targetSlot && edges.some((edge) => edge.target === resolvedTargetId && edge.data.reference_index === targetSlot - 1 && nodes.find((node) => node.id === edge.source)?.asset?.media === item.kind)) { setNotice(`${item.kind} ${targetSlot} 槽位已被占用。`); return false; }
     }
     let role: AssetRole = DEFAULT_ROLE[item.kind];
@@ -1285,7 +1283,7 @@ export default function Studio() {
     setRailPanel(null);
     setNotice(connectTarget === "image" ? `已将 ${item.filename} 作为图${targetImageReferences.length + 1}连到图片生成节点。` : connectTarget === "video" ? `已引用 ${item.filename} 并连接到 H3 视频。` : `已将 ${item.filename} 添加到画布。可拖动素材右侧圆点到生成节点左侧圆点完成连线。`);
     return true;
-  }, [edges, imageNodeId, nodes, profiles, updateGenerator, videoNodeId, viewport]);
+  }, [edges, imageNodeId, nodes, profiles, updateGenerator, videoNodeId]);
 
   const importJobOutput = useCallback(async (jobId: string): Promise<LibraryAsset> => {
     const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/assets`, {
@@ -1748,7 +1746,6 @@ export default function Studio() {
       const document = canvasDocumentFromState(nodes, edges, generatorStatesRef.current, viewport);
       const target = document.nodes.find((node) => node.id === targetNodeId);
       if (target?.kind !== "video-generator") return;
-      if (target.bindings.length >= 6) { setNotice("当前节点已使用 6 个参考绑定，无法再开启视频音轨。"); return; }
       if (target.bindings.filter((binding) => binding.kind === "audio").length >= 3) { setNotice("Audio 参考槽已满，无法再开启视频音轨。"); return; }
     }
     setEdges((current) => current.map((item) => item.id === edge.id ? { ...item, data: { ...item.data, include_audio: enabled } } : item));
@@ -2140,7 +2137,7 @@ export default function Studio() {
     const targetDocument = canvasDocumentFromState(nodes, edges, generatorStatesRef.current, viewport).nodes.find((node) => node.id === generatorNodeId);
     const targetBindings = targetDocument?.kind === "video-generator" || targetDocument?.kind === "image-generator" ? targetDocument.bindings : [];
     if (!targetPrompt.trim()) return kind === "image" ? "请在 Image Generation 节点填写图片正向提示词；Negative Prompt 不能代替正向提示词" : "请先填写视频提示词";
-    if (targetBindings.length > 6) return `H3 单任务最多绑定 6 个参考，当前为 ${targetBindings.length} 个；请关闭配对音轨或移除素材`;
+    if (new Set(targetBindings.map((binding) => binding.sourceNodeId)).size > H3_REFERENCE_BUDGET) return `H3 单任务最多绑定 ${H3_REFERENCE_BUDGET} 个参考文件；请移除素材`;
     if (targetBindings.filter((binding) => binding.kind === "audio").length > 3) return "Audio 参考最多 3 个；请关闭配对音轨或移除音频";
     if (targetAssets.some((node) => node.asset?.uploadState === "uploading")) return "请等待素材上传完成";
     if (edges.some((edge) => edge.target === generatorNodeId && nodes.find((node) => node.id === edge.source)?.asset?.uploadState === "error")) return "工作流包含上传失败的素材，请删除或重新上传";
@@ -2485,7 +2482,7 @@ export default function Studio() {
               <div className="generator-node-section"><VideoDirectorControls mode={nodeVideoParams.directorMode} sourceVideoId={nodeVideoParams.sourceVideoId} sources={nodeSources} contract={nodeContract} onModeChange={(directorMode) => updateNodeVideo((current) => ({ ...current, directorMode }))} onSourceChange={(sourceVideoId) => updateNodeVideo((current) => ({ ...current, sourceVideoId }))}/></div>
               <p className={nodeContract.errors.length ? "video-mode-summary has-error" : "video-mode-summary"}>{nodeContract.source ? <>源视频 <b title={nodeContract.source.label}>{nodeContract.source.label}</b> · &lt;Video 1&gt;{nodeContract.references.length ? <> · 引用 {nodeLabels.filter((item) => !item.source).map((item) => item.tag).join(" / ")}</> : null}</> : nodeLabels.length ? <>引用 {nodeLabels.map((item) => item.tag).join(" / ")}</> : "无参考素材"}</p>{nodeContract.errors[0] && <small className="video-mode-node-error" role="alert">{nodeContract.errors[0]}</small>}
               <label className="profile-picker embedded-profile-picker"><span>采样方案 <em>模式 × 档位自动解析具体 Profile</em></span><select value={nodeRuntime.profileId === "base20" ? "base20" : "turbo4"} onChange={(event) => chooseProfile("video", event.target.value, node.id)}><option value="turbo4" disabled={!nodeVideoProfileChoices.some((profile) => profile.available && profile.sampling_mode === "turbo4")}>Turbo4 · 4 步蒸馏 LoRA</option><option value="base20" disabled={!nodeVideoProfileChoices.some((profile) => profile.available && profile.sampling_mode === "base")}>Base20 Direct · 优先成片</option></select><small>{nodeVideoProfileChoices.find((profile) => profile.available && profile.sampling_mode === (nodeRuntime.profileId === "base20" ? "base" : "turbo4")) ? `${nodeVideoProfileChoices.find((profile) => profile.available && profile.sampling_mode === (nodeRuntime.profileId === "base20" ? "base" : "turbo4"))!.id}@${nodeVideoProfileChoices.find((profile) => profile.available && profile.sampling_mode === (nodeRuntime.profileId === "base20" ? "base" : "turbo4"))!.version}` : "当前组合没有可用 Profile"}</small></label>
-              <VideoReferenceSlots sources={nodes} bindings={nodeBindings} budget={6} onChoose={(media, slot) => { setAssetPickerTarget({ nodeId: node.id, media, slot }); setRailPanel("assets"); }} onRemove={(sourceNodeId, media) => { const source = nodes.find((item) => item.id === sourceNodeId); if (media === "audio" && source?.asset?.media === "video") { updateReferenceAudio(node.id, sourceNodeId, false); return; } const edge = edges.find((item) => item.source === sourceNodeId && item.target === node.id); if (edge) disconnectEdge(edge.id); }} onToggleAudio={(sourceNodeId, enabled) => updateReferenceAudio(node.id, sourceNodeId, enabled)}/>
+              <VideoReferenceSlots sources={nodes} bindings={nodeBindings} budget={H3_REFERENCE_BUDGET} onChoose={(media, slot) => { setAssetPickerTarget({ nodeId: node.id, media, slot }); setRailPanel("assets"); }} onRemove={(sourceNodeId, media) => { const source = nodes.find((item) => item.id === sourceNodeId); if (media === "audio" && source?.asset?.media === "video") { updateReferenceAudio(node.id, sourceNodeId, false); return; } const edge = edges.find((item) => item.source === sourceNodeId && item.target === node.id); if (edge) disconnectEdge(edge.id); }} onToggleAudio={(sourceNodeId, enabled) => updateReferenceAudio(node.id, sourceNodeId, enabled)}/>
               <details className="generator-advanced" open><summary>尺寸、时长与高级参数</summary><ParameterSummary title="当前解析配置" parameters={selectedId === node.id ? resolvedContract : undefined} compact/><ParameterPanel kind="video" hasImageInput={false} video={nodeVideoParams} setVideo={updateNodeVideo} image={nodeImageParams} setImage={updateNodeImage} profile={nodeVideoProfile}/></details>
               <details className={`prompt-preview ${nodeCompile.state === "error" ? "has-error" : ""}`} open={selectedId === node.id || nodeCompile.state === "error" ? true : undefined}><summary>H3 最终提示词预览（只读） · {nodeCompile.state === "loading" ? "校验中" : nodeCompile.state === "ready" ? "服务端已确认" : nodeCompile.state === "error" ? "校验失败" : "本地预览"}</summary>{nodeCompile.error && <div className="prompt-compile-error" role="alert"><span>最终提示词校验失败：{nodeCompile.error}</span><button type="button" onClick={() => { setSelectedId(node.id); setCompileRetryToken((value) => value + 1); }}>重新校验</button></div>}<pre data-i18n-ui-copy={!nodeCompile.prompt && !nodePrompt.trim() ? true : undefined}>{nodeCompile.prompt || nodePrompt.trim() || "填写提示词后显示实际提交文本"}</pre></details>
               <GeneratorNodeStatus job={nodeJob} busy={nodeBusy} onCancel={() => void cancelJob(node.id)}/>
@@ -2604,15 +2601,15 @@ function VideoReferenceSlots({ sources, bindings, budget, onChoose, onRemove, on
     { kind: "video", count: 3, label: "Video" },
     { kind: "audio", count: 3, label: "Audio" },
   ];
-  const usedCount = bindings.length;
-  return <section className="reference-slots" aria-label="H3 参考素材槽位"><header><div><strong>参考素材</strong><small>点击空槽从资产选择</small></div><span className={usedCount >= budget ? "full" : ""}>已用 {usedCount}/{budget}</span></header>{slots.map((group) => {
+  const usedCount = new Set(bindings.map((binding) => binding.sourceNodeId)).size;
+  return <section className="reference-slots" aria-label="H3 参考素材槽位"><header><div><strong>参考素材</strong><small>点击空槽从资产选择</small></div><span className={usedCount >= budget ? "full" : ""}>已用 {usedCount}/{budget} 文件</span></header>{slots.map((group) => {
     const occupied = bindings.filter((binding) => binding.kind === group.kind);
     return <div className="reference-slot-group" key={group.kind}><b>{group.label}</b><div>{Array.from({ length: group.count }, (_, index) => {
       const binding = occupied.find((item) => item.slot === index + 1); const source = binding ? sources.find((node) => node.id === binding.sourceNodeId) : undefined; const asset = source?.asset; const label = asset?.fileName ?? source?.title;
       const pairedVideoAudio = group.kind === "audio" && asset?.media === "video";
       return <button type="button" key={`${group.kind}-${index}`} className={`${binding ? "occupied" : ""}${pairedVideoAudio ? " paired-audio" : ""}`} disabled={!binding && usedCount >= budget} onClick={() => binding ? onRemove(binding.sourceNodeId, group.kind) : onChoose(group.kind, index + 1)} aria-label={binding ? `移除 ${group.label} ${index + 1}: ${label ?? binding.sourceNodeId}` : `选择 ${group.label} ${index + 1}`} title={binding ? `${label ?? binding.sourceNodeId}${pairedVideoAudio ? " · 视频配对音轨" : ""} · 点击移除` : `选择 ${group.label} ${index + 1}`}>{asset?.thumbnailUrl && (group.kind !== "audio" || pairedVideoAudio) ? <img src={asset.thumbnailUrl} alt="" loading="lazy" decoding="async"/> : null}<span aria-hidden="true">{binding ? group.kind === "audio" ? "♫" : "×" : "+"}</span>{pairedVideoAudio && <em>配对</em>}<small>{index + 1}</small></button>;
     })}</div></div>;
-  })}<div className="reference-audio-toggles">{bindings.filter((binding) => binding.kind === "video").map((binding) => { const source = sources.find((node) => node.id === binding.sourceNodeId); if (source?.asset?.media !== "video") return null; const paired = bindings.some((candidate) => candidate.kind === "audio" && candidate.sourceNodeId === binding.sourceNodeId); return <label key={`${binding.sourceNodeId}-${binding.slot}`}><input type="checkbox" checked={paired} disabled={!paired && (usedCount >= budget || source.asset.mediaMeta?.has_audio !== true)} onChange={(event) => onToggleAudio(binding.sourceNodeId, event.target.checked)}/><span title={source.asset.fileName}>{source.asset.fileName}</span><small>{source.asset.mediaMeta?.has_audio === true ? "当前节点的配对音轨" : "无可用音轨"}</small></label>; })}</div><p>H3 容量：Picture 9 / Video 3 / Audio 3；本项目单次最多绑定 6 个素材。</p></section>;
+  })}<div className="reference-audio-toggles">{bindings.filter((binding) => binding.kind === "video").map((binding) => { const source = sources.find((node) => node.id === binding.sourceNodeId); if (source?.asset?.media !== "video") return null; const paired = bindings.some((candidate) => candidate.kind === "audio" && candidate.sourceNodeId === binding.sourceNodeId); return <label key={`${binding.sourceNodeId}-${binding.slot}`}><input type="checkbox" checked={paired} disabled={!paired && source.asset.mediaMeta?.has_audio !== true} onChange={(event) => onToggleAudio(binding.sourceNodeId, event.target.checked)}/><span title={source.asset.fileName}>{source.asset.fileName}</span><small>{source.asset.mediaMeta?.has_audio === true ? "当前节点的配对音轨" : "无可用音轨"}</small></label>; })}</div><p>H3 容量：Picture 9 / Video 3 / Audio 3；混合输入合计最多 {H3_REFERENCE_BUDGET} 个文件，视频配对音轨不重复计文件数。</p></section>;
 }
 
 function GeneratorNodeStatus({ job, busy, onCancel }: { job: Job; busy: boolean; onCancel: () => void }) {

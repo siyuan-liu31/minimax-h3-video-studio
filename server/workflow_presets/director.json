@@ -21,7 +21,7 @@
     "r2v": {
       "display_name": "Reference to Video",
       "source_required": false,
-      "reference_contract": "1..6 connected references with at least one image or video; source_asset_id forbidden",
+      "reference_contract": "1..12 connected reference files with at least one image or video; source_asset_id forbidden",
       "video_layout": "Connected videos retain stable user order"
     },
     "v2v": {

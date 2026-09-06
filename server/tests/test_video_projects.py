@@ -457,17 +457,19 @@ class VideoProjectTests(unittest.TestCase):
             })
         self.assertEqual(raised.exception.code, "source_range_profile")
 
-        reference_ids = [f"{number + 32:032x}" for number in range(6)]
-        for asset_id in reference_ids:
-            self.add_asset(asset_id, "image")
+        reference_ids = [f"{number + 32:032x}" for number in range(12)]
+        reference_kinds = ["image"] * 9 + ["audio"] * 2 + ["video"]
+        for asset_id, kind in zip(reference_ids, reference_kinds, strict=True):
+            media = {"duration": 2.0, "has_audio": kind == "audio", **({"fps": 24, "reference_fps": 24} if kind == "video" else {})}
+            self.add_asset(asset_id, kind, media)
         request = self.request("minimax-h3-ref2va")
         request["references"] = [
-            {"asset_id": asset_id, "role": "identity"}
+            {"asset_id": asset_id, "role": "reference"}
             for asset_id in reference_ids
         ]
         with self.assertRaises(ApiError) as raised:
             self.manager.create({
-                "title": "Seven references", "storyboard": storyboard,
+                "title": "Thirteen files including source", "storyboard": storyboard,
                 "segments": [{
                     "continuation": "none", "request": request,
                     "source_range": source_range,
@@ -475,19 +477,19 @@ class VideoProjectTests(unittest.TestCase):
             })
         self.assertEqual(raised.exception.code, "too_many_references")
 
-        request["references"] = request["references"][:5]
+        request["references"] = request["references"][:11]
         accepted = self.manager.create({
-            "title": "Exactly six references", "storyboard": storyboard,
+            "title": "Exactly twelve files including source", "storyboard": storyboard,
             "segments": [{
                 "continuation": "none", "request": request,
                 "source_range": source_range,
             }],
         })
-        self.assertEqual(len(accepted["segments"][0]["request"]["references"]), 5)
+        self.assertEqual(len(accepted["segments"][0]["request"]["references"]), 11)
 
         request["references"] = [
-            {"asset_id": asset_id, "role": "identity"}
-            for asset_id in reference_ids[:5]
+            {"asset_id": asset_id, "role": "reference"}
+            for asset_id in reference_ids[:11]
         ]
         with self.assertRaises(ApiError) as raised:
             self.manager.create({
@@ -848,7 +850,7 @@ class VideoProjectTests(unittest.TestCase):
         self.assertNotIn("source_range", updated["segments"][0])
 
     def test_both_continuation_modes_reserve_one_reference_slot(self) -> None:
-        ids = [f"{number:032x}" for number in range(1, 7)]
+        ids = [f"{number:032x}" for number in range(1, 13)]
         for asset_id in ids:
             self.add_asset(asset_id, "image")
         for continuation, profile_id, role in (
@@ -856,7 +858,8 @@ class VideoProjectTests(unittest.TestCase):
             ("previous_video", "minimax-h3-ref2va", "identity"),
         ):
             request = self.request(profile_id)
-            request["references"] = [{"asset_id": asset_id, "role": role} for asset_id in ids]
+            selected = ids[:2] if continuation == "tail_frame" else ids
+            request["references"] = [{"asset_id": asset_id, "role": role} for asset_id in selected]
             with self.subTest(continuation=continuation), self.assertRaises(ApiError) as raised:
                 self.create_project(["none", continuation], [self.request(), request])
             self.assertEqual(raised.exception.code, "too_many_references")

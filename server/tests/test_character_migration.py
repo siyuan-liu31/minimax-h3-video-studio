@@ -142,6 +142,16 @@ class CharacterMigrationPlannerTests(unittest.TestCase):
         self.assertEqual(request["parameters"]["steps"], 20)
         self.assertNotIn("lora_strength", request["parameters"])
 
+    def test_reviewed_legacy_profile_identity_remains_plannable(self):
+        result = self.planning(spec(
+            profile_version="1.2",
+            profile_digest="d961eecd308a42dcf9730c1853dba9b8213284d69d75878d6865f5da1fd1465d",
+        ))
+        request = result["project"]["segments"][0]["request"]
+        profile = DEFAULT_REGISTRY.get("minimax-h3-ref2va")
+        self.assertEqual(request["profile_version"], profile.version)
+        self.assertEqual(request["profile_digest"], profile.digest())
+
     def test_prompt_binds_subjects_and_preservation_policy(self):
         prompt = build_prompt(source_subject="the center performer", character_asset_id=CHARACTER_ID)
         self.assertIn("<Subject 1>", prompt)

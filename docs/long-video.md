@@ -35,7 +35,7 @@ h3ctl video compose --spec ./trilogy.json --to ./final.mp4 --timeout 0
 - `duration` 最大可写精确值 `15.083333333333334`（`362 / 24`）；不要用更大的近似值；
 - 可选的视频 `parameters.denoise`（`0.05..1`，默认 `1.0`）；这是去噪幅度，不是图片 CFG，长视频 segment 不接受 CFG；
 - 从当前 `/api/capabilities` 取得的真实 `profile_id`、`profile_version`、`profile_digest`；
-- 已上传素材的 32 位 `id`/`asset_id` 及严格角色；首段显式引用最多 6 个，续接段会预留 1 个 H3 引用槽给派生的尾帧/上一段视频，因此显式引用最多 5 个；
+- 已上传素材的 32 位 `id`/`asset_id` 及严格角色；H3 Ref2VA 每段最多 9 张图片、3 个视频、3 个音频，混合文件合计最多 12 个；续接段会为派生尾帧/上一段视频预留 1 个对应类型及总量槽，因此显式混合引用最多 11 个；
 - `acceptance` 中与画幅对应的 H3 尺寸：16:9 是 `1344×768`，9:16 是 `768×1344`。
 
 Manifest 采用拒绝未知字段的严格 v1 schema，参考 [manifest.schema.json](../scripts/long_video/manifest.schema.json)。`output_name` 只能是安全的 `.mp4` 文件名，不能包含目录或 `..`。API Key 不允许写进 manifest。

@@ -15,7 +15,7 @@ from typing import Any
 from .config import Config
 from .errors import ApiError, CapabilityError
 from .profiles import (
-    DEFAULT_REGISTRY, H3_MAX_DURATION_SECONDS, UNAVAILABLE_IMAGE_CAPABILITIES,
+    DEFAULT_REGISTRY, H3_MAX_DURATION_SECONDS, H3_MAX_REFERENCES, UNAVAILABLE_IMAGE_CAPABILITIES,
     ProfileRegistry, WorkflowProfile,
 )
 from .workflows import GenerationSpec
@@ -490,7 +490,7 @@ class ComfyClient:
                     "1:1": [1024, 1024],
                 },
                 "duration_seconds": {"min": 5, "max": H3_MAX_DURATION_SECONDS},
-                "max_references": 6,
+                "max_references": H3_MAX_REFERENCES,
                 "motion_context": motion_context,
             },
             "image": {

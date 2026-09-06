@@ -18,6 +18,8 @@ from .profiles import (
     DEFAULT_REGISTRY,
     H3_MAX_DURATION_SECONDS,
     H3_MAX_FRAMES,
+    H3_MAX_REFERENCES,
+    H3_REFERENCE_CAPACITY,
     ProfileRegistry,
     WorkflowProfile,
 )
@@ -34,7 +36,6 @@ IMAGE_PRESETS: dict[str, tuple[int, int]] = {
     "3:4": (768, 1024),
     "1:1": (1024, 1024),
 }
-MAX_REFERENCES = 6
 PROMPT_MODES = {"default", "preserve_tags_only"}
 DIRECTOR_MODES = {"auto", "t2v", "i2v", "fl2v", "r2v", "v2v", "rv2v"}
 TAG_PATTERN = re.compile(r"<(Picture|Video|Audio)\s+(\d+)>", re.IGNORECASE)
@@ -190,7 +191,7 @@ def _validate_profile_identity(data: dict[str, Any], requested: str, profile: Wo
     requested_digest = str(data.get("profile_digest", "")).strip()
     if not requested_version or not requested_digest:
         raise ApiError(400, "profile_identity_required", "explicit profile_id requires profile_version and profile_digest from /api/capabilities")
-    if requested_version != profile.version or requested_digest != profile.digest():
+    if not profile.accepts_identity(requested_version, requested_digest):
         raise ApiError(409, "profile_version_mismatch", "the selected workflow profile changed; refresh capabilities")
 
 
@@ -428,8 +429,8 @@ def _graph_references(
             roles_by_source[source] = _role(role)
             if source_is_asset and isinstance(edge_data, dict) and "reference_index" in edge_data:
                 raw_index = edge_data["reference_index"]
-                if isinstance(raw_index, bool) or not isinstance(raw_index, int) or raw_index < 0 or raw_index >= MAX_REFERENCES:
-                    raise ApiError(400, "invalid_reference_order", f"reference_index must be an integer from 0 to {MAX_REFERENCES - 1}")
+                if isinstance(raw_index, bool) or not isinstance(raw_index, int) or raw_index < 0 or raw_index >= H3_MAX_REFERENCES:
+                    raise ApiError(400, "invalid_reference_order", f"reference_index must be an integer from 0 to {H3_MAX_REFERENCES - 1}")
                 reference_indices_by_source[source] = raw_index
 
     ready = [node_id for node_id, degree in indegree.items() if degree == 0]
@@ -532,8 +533,8 @@ def _explicit_references(
         label = str(item.get("label", asset.get("filename", "")))[:128]
         media = asset.get("media", {}) if isinstance(asset.get("media"), dict) else {}
         raw_index = item.get("reference_index", item.get("referenceIndex"))
-        if raw_index is not None and (isinstance(raw_index, bool) or not isinstance(raw_index, int) or raw_index < 0 or raw_index >= MAX_REFERENCES):
-            raise ApiError(400, "invalid_reference_order", f"reference_index must be an integer from 0 to {MAX_REFERENCES - 1}")
+        if raw_index is not None and (isinstance(raw_index, bool) or not isinstance(raw_index, int) or raw_index < 0 or raw_index >= H3_MAX_REFERENCES):
+            raise ApiError(400, "invalid_reference_order", f"reference_index must be an integer from 0 to {H3_MAX_REFERENCES - 1}")
         ordered.append(
             (raw_index, AssetRef(
                 asset_id=asset_id,
@@ -746,11 +747,13 @@ def _bind_director_source_prompt(prompt: str, director_mode: str, source_asset_i
 
 
 def _validate_reference_counts(references: list[AssetRef]) -> None:
-    if len(references) > MAX_REFERENCES:
-        raise ApiError(400, "too_many_references", "at most 6 total references are allowed")
-    capacities = {"image": 9, "video": 3, "audio": 3}
-    for kind, maximum in capacities.items():
-        if sum(ref.kind == kind for ref in references) > maximum:
+    if len(references) > H3_MAX_REFERENCES:
+        raise ApiError(400, "too_many_references", f"H3 supports at most {H3_MAX_REFERENCES} total reference files")
+    for kind, maximum in H3_REFERENCE_CAPACITY.items():
+        count = sum(ref.kind == kind for ref in references)
+        if kind == "audio":
+            count += sum(ref.kind == "video" and ref.include_audio for ref in references)
+        if count > maximum:
             raise ApiError(400, "too_many_references", f"H3 supports at most {maximum} {kind} references")
 
 

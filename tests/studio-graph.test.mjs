@@ -228,7 +228,7 @@ test("a binding without its typed edge blocks execution instead of silently drop
   assert.deepEqual(plan.steps, []);
 });
 
-test("typed slots allocate the first hole, enforce 9/3/3 capacity and the combined six-reference budget", () => {
+test("typed slots allocate the first hole, enforce 9/3/3 capacity and the combined twelve-file budget", () => {
   const video = node("video-generator", "target");
   video.bindings = [
     { id: "p1", kind: "image", slot: 1, sourceNodeId: "a", sourceOutputHandle: "image", role: "reference" },
@@ -244,13 +244,13 @@ test("typed slots allocate the first hole, enforce 9/3/3 capacity and the combin
   assert.equal(fourthVideo.ok, false);
   assert.ok(fourthVideo.issues.some((issue) => issue.code === "media-capacity-exceeded"));
 
-  const sources = Array.from({ length: 7 }, (_, index) => asset(`asset-${index}`, index < 5 ? "image" : "audio"));
+  const sources = Array.from({ length: 13 }, (_, index) => asset(`asset-${index}`, index < 9 ? "image" : index < 12 ? "audio" : "video"));
   let document = emptyDocument([...sources, node("video-generator", "generator")]);
-  for (let index = 0; index < 6; index += 1) document = mustConnect(document, sources[index].id, "generator", { createId: ids(`edge-${index}`) }).document;
-  const seventh = connectMedia(document, sources[6].id, "generator", { createId: ids("seventh") });
-  assert.equal(seventh.ok, false);
-  assert.ok(seventh.issues.some((issue) => issue.code === "reference-budget-exceeded"));
-  assert.equal(document.nodes.find((candidate) => candidate.id === "generator").bindings.length, 6);
+  for (let index = 0; index < 12; index += 1) document = mustConnect(document, sources[index].id, "generator", { createId: ids(`edge-${index}`) }).document;
+  const thirteenth = connectMedia(document, sources[12].id, "generator", { createId: ids("thirteenth") });
+  assert.equal(thirteenth.ok, false);
+  assert.ok(thirteenth.issues.some((issue) => issue.code === "reference-budget-exceeded"));
+  assert.equal(document.nodes.find((candidate) => candidate.id === "generator").bindings.length, 12);
 
   const imageGenerator = node("image-generator", "image-target");
   const audioAsset = asset("sound", "audio");

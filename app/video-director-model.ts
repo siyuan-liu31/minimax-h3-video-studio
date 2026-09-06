@@ -1,4 +1,4 @@
-import { isVideoMediaSegment, retargetSegmentCompiler, videoSegmentDuration, type TimelineProfile, type VideoSegment, type VideoStoryboard } from "./video-project.ts";
+import { findTimelineProfile, isVideoMediaSegment, retargetSegmentCompiler, videoSegmentDuration, type TimelineProfile, type VideoSegment, type VideoStoryboard } from "./video-project.ts";
 
 const H3_FPS = 24;
 const H3_DURATION_OPTIONS = Array.from(
@@ -91,7 +91,7 @@ export function segmentIndexAtTime(segments: VideoSegment[], seconds: number): n
 }
 
 function durationOptionsFor(segment: VideoSegment, profiles: TimelineProfile[]): number[] {
-  const profile = profiles.find((item) => item.id === segment.request.profile_id && item.version === segment.request.profile_version);
+  const profile = findTimelineProfile(profiles, segment.request.profile_id, segment.request.profile_version);
   const limit = profile?.limits.duration;
   const minimum = Array.isArray(limit) ? Number(limit[0]) : typeof limit === "number" ? limit : H3_DURATION_OPTIONS[0];
   const maximum = Array.isArray(limit) ? Number(limit[1]) : typeof limit === "number" ? limit : H3_DURATION_OPTIONS.at(-1)!;

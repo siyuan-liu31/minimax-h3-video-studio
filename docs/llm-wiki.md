@@ -138,7 +138,7 @@ OpenAPI、`docs/cli.md` 和 API 测试。
 - `MediaBinding` 保存媒体类型、槽位、来源、输出 handle 和工作流 `role`
 - `CanvasEdge` 保存拓扑和顺序；Prompt mention 绑定稳定的 `bindingId`
 - `configRevision` / `lastSuccessfulRevision` 判断结果是否过期
-- 画布约束：24 FPS、124–362 帧、最多 6 个绑定；类型容量为 Picture 9 / Video 3 / Audio 3，但项目安全预算仍是合计 6
+- 画布约束：24 FPS、124–362 帧；[MiniMax H3 官方输入规格](https://github.com/MiniMax-AI/MiniMax-H3/blob/main/README.zh-CN.md#模型变体和输入规格)规定 Ref2VA 类型容量为 Picture 9 / Video 3 / Audio 3，混合文件合计最多 12 个；同一视频启用配对音轨会同时占 Video/Audio 槽，但文件总量只计一次
 
 多个画布由 `app/studio-workspace.ts` 包装为 `CanvasWorkspaceV1`，保存在：
 

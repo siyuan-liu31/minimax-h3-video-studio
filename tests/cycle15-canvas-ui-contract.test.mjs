@@ -67,7 +67,7 @@ test("V7 document restore migrates with backup and typed slot selection targets 
   assert.match(source, /runtimesFromDocument\(document\)/);
   assert.match(source, /assetPickerTarget.*nodeId: string; media: MediaKind; slot: number/);
   assert.match(source, /addLibraryAsset\(item, targetKind === "image" \? "image" : "video", assetPickerTarget\.nodeId, assetPickerTarget\.slot\)/);
-  assert.match(source, /bindingCount >= 6/);
+  assert.match(source, /targetConnectedAssets\.length >= H3_REFERENCE_BUDGET/);
 });
 
 test("image to video execution uses the V7 graph plan and materializes upstream output", async () => {
@@ -104,18 +104,18 @@ test("sampling restores as the two product presets and Output collects every con
   assert.match(source, /sourceGeneratorIds\.map\(\(sourceId\)/);
 });
 
-test("paired video soundtracks are visible budgeted bindings and never silently truncated", async () => {
+test("paired video soundtracks occupy Audio slots but count once in the mixed file budget", async () => {
   const source = await readFile(studioPath, "utf8");
 
   assert.doesNotMatch(source, /\}\)\.slice\(0, 6\)/);
-  assert.match(source, /const usedCount = bindings\.length/);
+  assert.match(source, /const usedCount = new Set\(bindings\.map\(\(binding\) => binding\.sourceNodeId\)\)\.size/);
   assert.match(source, /group\.kind === "audio" && asset\?\.media === "video"/);
   assert.match(source, /updateReferenceAudio\(node\.id, sourceNodeId, false\)/);
   assert.match(source, /referenceIncludesAudio\(edges, node\.id, item\.id\)/);
   assert.doesNotMatch(source, /asset\.includeAudio/);
   assert.doesNotMatch(source, /update\(nodeId, \{ includeAudio:/);
-  assert.match(source, /target\.bindings\.length >= 6/);
-  assert.match(source, /targetBindings\.length > 6/);
+  assert.doesNotMatch(source, /target\.bindings\.length >= 6/);
+  assert.match(source, /new Set\(targetBindings\.map\(\(binding\) => binding\.sourceNodeId\)\)\.size > H3_REFERENCE_BUDGET/);
   assert.match(source, /item\.id === edge\.id[\s\S]{0,120}include_audio: enabled/);
 });
 

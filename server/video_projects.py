@@ -23,7 +23,7 @@ from .character_migration import RECIPE_TYPE, validate_recipe
 from .config import Config
 from .errors import ApiError
 from .motion_context import MotionContextStore
-from .profiles import H3_MAX_DURATION_SECONDS, ProfileRegistry
+from .profiles import H3_MAX_DURATION_SECONDS, H3_REFERENCE_CAPACITY, ProfileRegistry
 from .security import secure_join, validate_id
 from .storage import AssetStore, JobStore, JsonStore
 from .workflows import MotionContextPlan, compile_workflow, parse_generation_request, workflow_evidence
@@ -866,7 +866,7 @@ class VideoProjectManager:
         if not all(isinstance(item, str) and item for item in (profile_id, version, digest)):
             raise ApiError(400, "profile_identity_required", "every segment must pin profile_id, profile_version, and profile_digest")
         profile = self.registry.get(str(profile_id))
-        if profile.output_type != "video" or profile.version != version or profile.digest() != digest:
+        if profile.output_type != "video" or not profile.accepts_identity(str(version), str(digest)):
             raise ApiError(409, "profile_version_mismatch", "the pinned video workflow profile is unavailable or changed")
         prompt_mode = value.get("prompt_mode", "default")
         if not isinstance(prompt_mode, str) or prompt_mode not in {"default", "preserve_tags_only"}:
@@ -886,6 +886,7 @@ class VideoProjectManager:
         if not isinstance(references, list):
             raise ApiError(400, "invalid_references", "references must be an array")
         normalized_refs: list[dict[str, Any]] = []
+        reference_kinds: list[str] = []
         seen: set[str] = set()
         for item in references:
             if not isinstance(item, dict) or set(item) - {"id", "asset_id", "role", "include_audio", "voice_speaker", "voice_subject"}:
@@ -896,20 +897,35 @@ class VideoProjectManager:
             validate_id(asset_id, "asset id")
             if asset_id in seen:
                 raise ApiError(400, "invalid_references", "reference asset ids must be unique")
-            self.assets.get(asset_id)
+            asset = self.assets.get(asset_id)
             normalized = {"asset_id": asset_id, "role": str(item.get("role", "reference"))}
             for key in ("include_audio", "voice_speaker", "voice_subject"):
                 if key in item:
                     normalized[key] = item[key]
             normalized_refs.append(normalized)
+            reference_kinds.append(str(asset.get("kind", "")))
             seen.add(asset_id)
         pixel_continuation = continuation in {"tail_frame", "previous_video"}
         reserved_references = int(pixel_continuation) + int(source_range is not None)
-        if len(normalized_refs) > 6 - reserved_references:
+        reference_limit = profile.limits.get("references", 0)
+        if not isinstance(reference_limit, int) or len(normalized_refs) > reference_limit - reserved_references:
             raise ApiError(
                 400, "too_many_references",
-                "source ranges and continuation inputs each reserve one of H3's six reference slots",
+                f"source ranges and continuation inputs each reserve one of this profile's {reference_limit} reference slots",
             )
+        modality_counts = {
+            kind: sum(candidate == kind for candidate in reference_kinds)
+            for kind in H3_REFERENCE_CAPACITY
+        }
+        modality_counts["image"] += int(continuation == "tail_frame")
+        modality_counts["video"] += int(continuation == "previous_video") + int(source_range is not None)
+        modality_counts["audio"] += sum(
+            kind == "video" and reference.get("include_audio") is True
+            for kind, reference in zip(reference_kinds, normalized_refs, strict=True)
+        ) + int(source_range is not None and include_source_audio)
+        for kind, maximum in H3_REFERENCE_CAPACITY.items():
+            if modality_counts[kind] > maximum:
+                raise ApiError(400, "too_many_references", f"H3 supports at most {maximum} {kind} references per segment")
         request: dict[str, Any] = {
             "prompt": prompt.strip() if isinstance(prompt, str) else "",
             "parameters": dict(parameters),

@@ -166,7 +166,7 @@ h3ctl generate video \
   --download ./shot.mp4
 ```
 
-Supported modes are `t2v`, `i2v`, `fl2v`, `r2v`, `v2v`, and `rv2v`. A bare `--ref LOCATOR` is always treated literally, so filenames and URIs containing `=` or `,` work without escaping. Structured roles use the explicit `json:` prefix, for example `--ref 'json:{"role":"identity","source":"asset:ID"}'`. `--ref-dir 'json:{"role":"reference","path":"./dir,with,commas"}'` is the recommended unambiguous directory form; legacy `role=reference,path=...` remains supported when the path contains no comma. Directory expansion uses stable order and enforces the six-reference boundary before submission. All three video entry points—typed flags, `--spec`, and `operation run generate.video`—default to `prompt_mode=preserve_tags_only`.
+Supported modes are `t2v`, `i2v`, `fl2v`, `r2v`, `v2v`, and `rv2v`. A bare `--ref LOCATOR` is always treated literally, so filenames and URIs containing `=` or `,` work without escaping. Structured roles use the explicit `json:` prefix, for example `--ref 'json:{"role":"identity","source":"asset:ID"}'`. `--ref-dir 'json:{"role":"reference","path":"./dir,with,commas"}'` is the recommended unambiguous directory form; legacy `role=reference,path=...` remains supported when the path contains no comma. Directory expansion uses stable order and enforces the H3 Ref2VA limits before submission: at most 9 images, 3 videos, 3 audio files, and 12 mixed files in total. All three video entry points—typed flags, `--spec`, and `operation run generate.video`—default to `prompt_mode=preserve_tags_only`.
 
 By default generation only submits and returns the durable job ID:
 

@@ -32,6 +32,8 @@ ALLOWED_MODEL_ROLES = frozenset(
 )
 H3_MAX_FRAMES = 362
 H3_MAX_DURATION_SECONDS = H3_MAX_FRAMES / 24
+H3_MAX_REFERENCES = 12
+H3_REFERENCE_CAPACITY = {"image": 9, "video": 3, "audio": 3}
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +56,7 @@ class WorkflowProfile:
     license_id: str = ""
     license_url: str = ""
     use_notice: str = ""
+    compatible_identities: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
     def digest(self) -> str:
         canonical = {
@@ -131,8 +134,22 @@ class WorkflowProfile:
             "use_notice": self.use_notice or None,
             "reference_contract": reference_contract,
             "resume": self.resume or {"supported": False, "reason": "profile_not_tested"},
+            "compatible_identities": [
+                {"version": version, "manifest_sha256": digest}
+                for version, digest in self.compatible_identities
+            ],
             "manifest_sha256": self.digest(),
         }
+
+    def accepts_identity(self, version: str, digest: str) -> bool:
+        """Accept the current profile identity plus explicitly reviewed predecessors."""
+        return (version == self.version and digest == self.digest()) or (version, digest) in self.compatible_identities
+
+    def accepts_version(self, version: str) -> bool:
+        return version == self.version or any(candidate == version for candidate, _digest in self.compatible_identities)
+
+    def accepts_digest(self, digest: str) -> bool:
+        return digest == self.digest() or any(candidate == digest for _version, candidate in self.compatible_identities)
 
 
 VIDEO_SHARED = (
@@ -249,7 +266,7 @@ COMPILER_PARAMETERS: dict[str, dict[str, Any]] = {
     "h3_ref": {
         "schema": {"duration": "number", "width": "integer", "height": "integer", "steps": "integer", "lora_strength": "number", "ref_image_size": "string", "denoise": "number", "seed": "integer"},
         "defaults": {"duration": 124 / 24, "steps": 20, "lora_strength": 0, "ref_image_size": "match", "denoise": 1.0},
-        "limits": {"duration": [5, H3_MAX_DURATION_SECONDS], "references": 6, "steps": [4, 50], "lora_strength": [0, 2], "denoise": [0.05, 1]},
+        "limits": {"duration": [5, H3_MAX_DURATION_SECONDS], "references": H3_MAX_REFERENCES, "steps": [4, 50], "lora_strength": [0, 2], "denoise": [0.05, 1]},
     },
     "checkpoint_t2i": {
         "schema": {"width": "integer", "height": "integer", "steps": "integer", "cfg": "number", "seed": "integer"},
@@ -353,32 +370,35 @@ BUILTIN_PROFILES = (
         use_notice="Opt-in continuation profile; requires the bundled H3 Studio checkpoint nodes in ComfyUI.",
     ),
     _profile(
-        id="minimax-h3-ref2va", version="1.2", display_name="MiniMax H3 Ref2VA · Turbo LoRA（4 步推荐）",
+        id="minimax-h3-ref2va", version="1.3", display_name="MiniMax H3 Ref2VA · Turbo LoRA（4 步推荐）",
         output_type="video", input_modalities=("text", "image", "video", "audio"),
         required_nodes=VIDEO_SHARED + ("LoraLoaderModelOnly", "MiniMaxH3ReferenceToVideo", "LoadImage", "LoadVideo", "LoadAudio", "GetVideoComponents"),
         required_models=("ref_model", "text_encoder", "video_vae", "audio_vae", "ref_lora"),
         parameter_schema={"duration": "number", "width": "integer", "height": "integer", "steps": "integer", "lora_strength": "number", "ref_image_size": "string", "denoise": "number", "seed": "integer"},
         defaults={"duration": 124 / 24, "steps": 4, "lora_strength": 0.75, "ref_image_size": "match", "denoise": 1.0},
-        limits={"duration": [5, H3_MAX_DURATION_SECONDS], "references": 6, "steps": [4, 50], "lora_strength": [0, 2], "denoise": [0.05, 1]}, compiler="h3_ref", sampling_mode="turbo4",
+        limits={"duration": [5, H3_MAX_DURATION_SECONDS], "references": H3_MAX_REFERENCES, "steps": [4, 50], "lora_strength": [0, 2], "denoise": [0.05, 1]}, compiler="h3_ref", sampling_mode="turbo4",
+        compatible_identities=(("1.2", "d961eecd308a42dcf9730c1853dba9b8213284d69d75878d6865f5da1fd1465d"),),
     ),
     _profile(
-        id="minimax-h3-ref2va-base", version="1.2", display_name="MiniMax H3 Ref2VA · Base 20 Direct (no Turbo)",
+        id="minimax-h3-ref2va-base", version="1.3", display_name="MiniMax H3 Ref2VA · Base 20 Direct (no Turbo)",
         output_type="video", input_modalities=("text", "image", "video", "audio"),
         required_nodes=VIDEO_SHARED + ("MiniMaxH3ReferenceToVideo", "LoadImage", "LoadVideo", "LoadAudio", "GetVideoComponents"),
         required_models=("ref_model", "text_encoder", "video_vae", "audio_vae"),
         parameter_schema={"duration": "number", "width": "integer", "height": "integer", "steps": "integer", "ref_image_size": "string", "denoise": "number", "seed": "integer"},
         defaults={"duration": 124 / 24, "steps": 20, "ref_image_size": "match", "denoise": 1.0},
-        limits={"duration": [5, H3_MAX_DURATION_SECONDS], "references": 6, "steps": [4, 50], "denoise": [0.05, 1]}, compiler="h3_ref", sampling_mode="base",
+        limits={"duration": [5, H3_MAX_DURATION_SECONDS], "references": H3_MAX_REFERENCES, "steps": [4, 50], "denoise": [0.05, 1]}, compiler="h3_ref", sampling_mode="base",
+        compatible_identities=(("1.2", "71bb15b0a310d743ed777dacd5c7d5e1ccc5ca2d943e3eea9deb2e800800b53c"),),
         use_notice="Default Base profile: render the video directly; no checkpoint is placed on the critical path.",
     ),
     _profile(
-        id="minimax-h3-ref2va-base-resumable", version="1.0", display_name="MiniMax H3 Ref2VA · Base Resumable (opt-in)",
+        id="minimax-h3-ref2va-base-resumable", version="1.1", display_name="MiniMax H3 Ref2VA · Base Resumable (opt-in)",
         output_type="video", input_modalities=("text", "image", "video", "audio"),
         required_nodes=VIDEO_SHARED + VIDEO_RESUME_NODES + ("MiniMaxH3ReferenceToVideo", "LoadImage", "LoadVideo", "LoadAudio", "GetVideoComponents"),
         required_models=("ref_model", "text_encoder", "video_vae", "audio_vae"),
         parameter_schema={"duration": "number", "width": "integer", "height": "integer", "steps": "integer", "ref_image_size": "string", "denoise": "number", "seed": "integer"},
         defaults={"duration": 124 / 24, "steps": 20, "ref_image_size": "match", "denoise": 1.0},
-        limits={"duration": [5, H3_MAX_DURATION_SECONDS], "references": 6, "steps": [4, 50], "denoise": [0.05, 1]}, compiler="h3_ref", sampling_mode="base",
+        limits={"duration": [5, H3_MAX_DURATION_SECONDS], "references": H3_MAX_REFERENCES, "steps": [4, 50], "denoise": [0.05, 1]}, compiler="h3_ref", sampling_mode="base",
+        compatible_identities=(("1.0", "451682da20ceb18f6d0f4ed08a0e7699625348b74e99bfd6d08d92620c7ce49b"),),
         resume={"supported": True, "schedule_version": "h3-simple-fixed/v1", "max_total_steps": 50, "additional_steps": [1, 46]},
         use_notice="Opt-in continuation profile; requires the bundled H3 Studio checkpoint nodes in ComfyUI.",
     ),

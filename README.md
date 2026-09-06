@@ -90,7 +90,7 @@ This lightweight animation is a five-second excerpt, beginning at the first usab
 | `T2V` | Text to video | Text prompt only |
 | `I2V` | Single-image to video | One starting image |
 | `FL2V` | First-and-last-frame to video | One or two endpoint images |
-| `R2V` | Multimodal reference to video | Up to six image, video, and audio references combined |
+| `R2V` | Multimodal reference to video | Up to 9 images, 3 videos, and 3 audio files; 12 files combined |
 | `V2V` | Source video remake | Exactly one source video selected explicitly |
 | `RV2V` | Source video plus multimodal references | Source video and additional references are bound separately |
 

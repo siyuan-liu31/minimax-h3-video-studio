@@ -52,13 +52,14 @@
     "generated_fps": 24,
     "generated_frame_grid": "17k+5",
     "max_generated_frames": 362,
-    "max_total_references": 6,
+    "max_total_references": 12,
+    "max_image_references": 9,
     "max_video_references": 3,
     "max_audio_references": 3,
     "reference_media_seconds": [2, 15],
     "max_video_reference_seconds_total": 15,
     "max_audio_reference_seconds_total": 15,
-    "note": "These product limits are intentionally tighter than the upstream Director UI. The implicit v2v/rv2v source consumes one reference and one video slot."
+    "note": "These limits follow the official H3 Ref2VA input contract. The implicit v2v/rv2v source consumes one file and one video slot."
   },
   "request_contract": {
     "director_mode_field": "director_mode",

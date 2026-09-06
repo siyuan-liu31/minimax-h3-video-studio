@@ -114,8 +114,8 @@ def _validate_request(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(digest, str) or SHA256.fullmatch(digest) is None:
         raise ValueError(f"{label}.profile_digest must be 64 lowercase hexadecimal characters")
     references_raw = request.get("references", [])
-    if not isinstance(references_raw, list) or len(references_raw) > 6:
-        raise ValueError(f"{label}.references must be an array of at most 6 items")
+    if not isinstance(references_raw, list) or len(references_raw) > 12:
+        raise ValueError(f"{label}.references must be an array of at most 12 items")
     references = [_validate_reference(item, f"{label}.references[{index}]") for index, item in enumerate(references_raw)]
     identities = [item.get("id", item.get("asset_id")) for item in references]
     if len(identities) != len(set(identities)):

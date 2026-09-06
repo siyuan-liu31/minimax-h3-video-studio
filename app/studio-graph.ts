@@ -400,7 +400,8 @@ export function connectMedia(
   }
   if (isGenerator(source) && isGenerator(target) && pathExists(document, target.id, source.id)) issues.push({ code: "cycle", nodeId: target.id, message: "此连接会形成生成依赖环。" });
   if (!isGenerator(target) || !kind || issues.length) return { ok: false, document, issues };
-  if (target.bindings.length >= H3_REFERENCE_BUDGET) return { ok: false, document, issues: [{ code: "reference-budget-exceeded", nodeId: target.id, message: `每个生成节点最多绑定 ${H3_REFERENCE_BUDGET} 个媒体输入。` }] };
+  const referenceFiles = new Set(target.bindings.map((binding) => binding.sourceNodeId)).size;
+  if (referenceFiles >= H3_REFERENCE_BUDGET) return { ok: false, document, issues: [{ code: "reference-budget-exceeded", nodeId: target.id, message: `每个生成节点最多绑定 ${H3_REFERENCE_BUDGET} 个参考文件。` }] };
   const capacity = H3_REFERENCE_CAPACITY[kind];
   const slot = options.slot ?? firstAvailableSlot(target.bindings, kind);
   if (slot === undefined) return { ok: false, document, issues: [{ code: "media-capacity-exceeded", nodeId: target.id, message: `${kind} 输入最多 ${capacity} 个。` }] };

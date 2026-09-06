@@ -111,22 +111,26 @@ func buildDefinitions() map[string]Definition {
 		return value
 	}
 	enum := func(values ...any) map[string]any { return map[string]any{"type": "string", "enum": values} }
-	referenceProperties := func() map[string]any {
+	referenceProperties := func(maximumIndex float64) map[string]any {
 		return map[string]any{
 			"source":          stringRule,
 			"asset_id":        idRule,
 			"role":            enum("reference", "first", "last", "first_frame", "last_frame", "init_image", "image_edit", "identity", "style", "composition", "motion", "camera", "pacing", "voice", "music", "rhythm"),
-			"reference_index": map[string]any{"type": "integer", "minimum": float64(0), "maximum": float64(5)},
+			"reference_index": map[string]any{"type": "integer", "minimum": float64(0), "maximum": maximumIndex},
 			"label":           map[string]any{"type": "string", "maxLength": float64(128)},
 			"include_audio":   boolRule,
 			"voice_speaker":   map[string]any{"type": "string"},
 			"voice_subject":   map[string]any{"type": "integer", "minimum": float64(0)},
 		}
 	}
-	referenceObject := func(required string) map[string]any { return object([]string{required}, referenceProperties()) }
-	references := map[string]any{
-		"type": "array", "maxItems": float64(6),
-		"items": map[string]any{"oneOf": []any{stringRule, referenceObject("source"), referenceObject("asset_id")}},
+	references := func(maximum float64) map[string]any {
+		referenceObject := func(required string) map[string]any {
+			return object([]string{required}, referenceProperties(maximum-1))
+		}
+		return map[string]any{
+			"type": "array", "maxItems": maximum,
+			"items": map[string]any{"oneOf": []any{stringRule, referenceObject("source"), referenceObject("asset_id")}},
+		}
 	}
 	commonParameters := map[string]any{
 		"aspect_ratio":  enum("16:9", "9:16", "3:4", "1:1", "landscape", "portrait", "square", "1344x768", "768x1344", "1024x1024"),
@@ -155,15 +159,17 @@ func buildDefinitions() map[string]Definition {
 	videoParameters["source_asset_id"] = stringRule
 	generateProperties := func(video bool) map[string]any {
 		parameters := imageParameters
+		maximumReferences := float64(6)
 		if video {
 			parameters = videoParameters
+			maximumReferences = 12
 		}
 		value := map[string]any{
 			"prompt":          stringRule,
 			"profile_id":      map[string]any{"type": "string", "default": "auto"},
 			"profile_version": map[string]any{"type": "string"},
 			"profile_digest":  map[string]any{"type": "string"},
-			"references":      references,
+			"references":      references(maximumReferences),
 			"parameters":      object(nil, parameters),
 			"request_id":      idRule,
 		}

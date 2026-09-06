@@ -63,6 +63,14 @@ func TestPublishedSchemaDescribesNestedContracts(t *testing.T) {
 	if len(items["oneOf"].([]any)) != 3 || parameters["additionalProperties"] != false {
 		t.Fatalf("schema=%v", schema)
 	}
+	if references["maxItems"] != float64(12) {
+		t.Fatalf("video references=%v", references)
+	}
+	imageSchema, _ := Schema("generate.image")
+	imageReferences := imageSchema["properties"].(map[string]any)["references"].(map[string]any)
+	if imageReferences["maxItems"] != float64(6) {
+		t.Fatalf("image references=%v", imageReferences)
+	}
 	if _, ok := parameters["properties"].(map[string]any)["duration"]; !ok {
 		t.Fatal("duration contract missing")
 	}
@@ -70,6 +78,26 @@ func TestPublishedSchemaDescribesNestedContracts(t *testing.T) {
 	segment := project["properties"].(map[string]any)["segment_ids"].(map[string]any)
 	if segment["items"].(map[string]any)["type"] != "string" {
 		t.Fatalf("segment schema=%v", segment)
+	}
+}
+
+func TestVideoReferenceSchemaAcceptsTwelveAndRejectsThirteen(t *testing.T) {
+	input := map[string]any{"prompt": "x", "director_mode": "r2v"}
+	references := make([]any, 12)
+	for index := range references {
+		references[index] = map[string]any{
+			"asset_id": fmt.Sprintf("%032x", index+1), "role": "identity", "reference_index": float64(index),
+		}
+	}
+	input["references"] = references
+	if err := ValidateInput("generate.video", input); err != nil {
+		t.Fatalf("twelve references were rejected: %v", err)
+	}
+	input["references"] = append(references, map[string]any{
+		"asset_id": strings.Repeat("f", 32), "role": "identity", "reference_index": float64(12),
+	})
+	if err := ValidateInput("generate.video", input); err == nil {
+		t.Fatal("thirteen references were accepted")
 	}
 }
 

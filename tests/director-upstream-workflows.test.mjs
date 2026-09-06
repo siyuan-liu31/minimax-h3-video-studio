@@ -73,9 +73,10 @@ test("source audio modes remain separate output semantics and are not faked as r
   assert.ok(contract.capability_boundary.upstream_custom_or_separate_implementation.includes("motion-context latent/audio pinning and prefix trimming"));
 });
 
-test("Studio keeps its tighter paid-run and licensing gates", () => {
+test("Studio keeps the official H3 reference limits and its licensing gates", () => {
   assert.equal(contract.studio_limits.max_generated_frames, 362);
-  assert.equal(contract.studio_limits.max_total_references, 6);
+  assert.equal(contract.studio_limits.max_total_references, 12);
+  assert.equal(contract.studio_limits.max_image_references, 9);
   assert.equal(contract.studio_limits.max_video_references, 3);
   assert.equal(contract.studio_limits.max_audio_references, 3);
   assert.deepEqual(contract.studio_limits.reference_media_seconds, [2, 15]);

@@ -192,10 +192,10 @@ test("continuation is exactly one enum choice and first segment cannot depend on
     continuation: "previous_video",
     request: {
       ...segment("s2").request,
-      references: Array.from({ length: 6 }, (_, index) => ({ asset_id: String(index).padStart(32, "a"), role: "identity" })),
+      references: Array.from({ length: 12 }, (_, index) => ({ asset_id: index.toString(16).repeat(32), role: "identity" })),
     },
   })] });
-  assert.match(validateVideoProject(tooMany).join("\n"), /six references/i);
+  assert.match(validateVideoProject(tooMany).join("\n"), /12-file reference budget/i);
   const mixedTail = project({ segments: [segment("s1"), segment("s2", {
     continuation: "tail_frame",
     request: { ...segment("s2").request, references: [{ asset_id: "b".repeat(32), role: "identity" }] },
@@ -348,10 +348,10 @@ test("visible H3 reference tags match native independent type and paired-audio n
 });
 
 test("continuation keeps one H3 reference slot reserved and tail-frame only accepts one image", () => {
-  const ids = Array.from({ length: 6 }, (_, index) => index.toString(16).repeat(32));
+  const ids = Array.from({ length: 12 }, (_, index) => index.toString(16).repeat(32));
   let previousVideo = [];
-  for (let index = 0; index < 6; index += 1) previousVideo = appendTimelineReference(previousVideo, { id: ids[index], kind: "image" }, "previous_video");
-  assert.equal(previousVideo.length, 5);
+  for (let index = 0; index < 12; index += 1) previousVideo = appendTimelineReference(previousVideo, { id: ids[index], kind: "image" }, "previous_video");
+  assert.equal(previousVideo.length, 11);
   const tail = appendTimelineReference([], { id: "a".repeat(32), kind: "image" }, "tail_frame");
   assert.deepEqual(tail, [{ asset_id: "a".repeat(32), role: "last_frame" }]);
   assert.strictEqual(appendTimelineReference(tail, { id: "b".repeat(32), kind: "image" }, "tail_frame"), tail);
@@ -508,6 +508,8 @@ test("long-video profile selection pins id and version instead of picking an old
   assert.equal(findTimelineProfile([first, second], "h3-ref@2"), second);
   assert.equal(findTimelineProfile([first, second], "h3-ref", "2"), second);
   assert.equal(findTimelineProfile([first, second], "h3-ref"), first);
+  const current = { ...second, compatible_identities: [{ version: "1", manifest_sha256: first.manifest_sha256 }] };
+  assert.equal(findTimelineProfile([current], "h3-ref", "1"), current);
 });
 
 test("adding any Ref2VA reference retargets to h3_ref while preserving and clamping tuned values", () => {
@@ -573,11 +575,11 @@ test("source ranges reserve a Ref2VA slot and appear after explicit videos in re
     storyboard: { source_asset_id: sourceId, fps: 30, frame_count: 300, cut_frames: [] },
     segments: [segment("s1", {
       source_range: { asset_id: sourceId, start_frame: 0, end_frame: 300, fps: 30 },
-      request: { ...segment("s1").request, profile_id: refProfile.id, profile_version: refProfile.version, profile_digest: refProfile.manifest_sha256, references: Array.from({ length: 6 }, (_, index) => ({ asset_id: index.toString(16).repeat(32), role: "reference" })) },
+      request: { ...segment("s1").request, profile_id: refProfile.id, profile_version: refProfile.version, profile_digest: refProfile.manifest_sha256, references: Array.from({ length: 12 }, (_, index) => ({ asset_id: index.toString(16).repeat(32), role: "reference" })) },
     })],
   });
   const errors = validateVideoProject(value, [refProfile]).join("\n");
-  assert.match(errors, /exceeds the six references budget/);
+  assert.match(errors, /exceeds the 12-file reference budget/);
   assert.doesNotMatch(errors, /h3_ref profile requires/);
 });
 

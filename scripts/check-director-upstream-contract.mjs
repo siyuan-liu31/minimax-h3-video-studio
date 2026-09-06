@@ -63,7 +63,7 @@ export function validateDirectorContract(contract) {
   requireValue(constraints.fps === 24, "H3 contract fps must remain 24", errors);
   requireValue(constraints.frame_grid === "17k+5", "H3 frame grid must remain 17k+5", errors);
   requireValue(constraints.max_generated_segment_frames === 362, "generated segment limit must remain 362 frames", errors);
-  requireValue(constraints.max_total_references === 6, "aggregate reference budget must remain 6", errors);
+  requireValue(constraints.max_total_references === 12, "aggregate reference budget must remain 12", errors);
   requireValue(
     Array.isArray(constraints.reference_budget_includes)
       && constraints.reference_budget_includes.includes("implicit continuity context"),

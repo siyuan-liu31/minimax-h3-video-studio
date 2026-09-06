@@ -596,13 +596,63 @@ class RequestTests(unittest.TestCase):
         many = []
         added: list[str] = []
         try:
-            for index in range(7):
+            kinds = ["image"] * 9 + ["video"] * 3 + ["audio"]
+            for index, kind in enumerate(kinds):
                 key = f"{index:032x}"
                 added.append(key)
-                ASSETS[key] = {"id": key, "kind": "image", "filename": "x.png", "comfy_path": "x.png"}
+                suffix = {"image": "png", "video": "mp4", "audio": "wav"}[kind]
+                ASSETS[key] = {
+                    "id": key, "kind": kind, "filename": f"x.{suffix}", "comfy_path": f"x.{suffix}",
+                    **({"media": {"duration": 2.0, "has_audio": False, "fps": 24, "reference_fps": 24}} if kind == "video" else {}),
+                    **({"media": {"duration": 2.0, "has_audio": True}} if kind == "audio" else {}),
+                }
                 many.append({"id": key})
-            with self.assertRaisesRegex(ApiError, "at most 6"):
+            accepted = parse_generation_request({"type": "video", "prompt": "x", "assets": many[:12]}, lookup)
+            self.assertEqual(len(accepted.references), 12)
+            with self.assertRaisesRegex(ApiError, "at most 12"):
                 parse_generation_request({"type": "video", "prompt": "x", "assets": many}, lookup)
+        finally:
+            for key in added:
+                ASSETS.pop(key, None)
+
+    def test_h3_reference_modality_capacities_are_independent(self) -> None:
+        cases = (("image", 10), ("video", 4), ("audio", 4))
+        for kind, count in cases:
+            added: list[str] = []
+            try:
+                references = []
+                if kind == "audio":
+                    references.append({"id": "a" * 32})
+                for index in range(count):
+                    key = f"{100 + index:032x}"
+                    added.append(key)
+                    suffix = {"image": "png", "video": "mp4", "audio": "wav"}[kind]
+                    media = {"duration": 2.0, "has_audio": kind == "audio"}
+                    if kind == "video":
+                        media.update({"fps": 24, "reference_fps": 24})
+                    ASSETS[key] = {"id": key, "kind": kind, "filename": f"x.{suffix}", "comfy_path": f"x.{suffix}", "media": media}
+                    references.append({"id": key})
+                with self.subTest(kind=kind), self.assertRaisesRegex(ApiError, f"at most .* {kind}"):
+                    parse_generation_request({"type": "video", "prompt": "x", "assets": references}, lookup)
+            finally:
+                for key in added:
+                    ASSETS.pop(key, None)
+
+    def test_video_soundtrack_consumes_audio_slot_but_not_an_extra_file(self) -> None:
+        added = ["e" * 32, "f" * 32]
+        try:
+            for key in added:
+                ASSETS[key] = {
+                    "id": key, "kind": "audio", "filename": "voice.wav", "comfy_path": "voice.wav",
+                    "media": {"duration": 2.0, "has_audio": True},
+                }
+            references = [
+                {"id": "a" * 32},
+                {"id": "c" * 32, "include_audio": True},
+                {"id": "d" * 32}, {"id": "e" * 32}, {"id": "f" * 32},
+            ]
+            with self.assertRaisesRegex(ApiError, "at most 3 audio"):
+                parse_generation_request({"type": "video", "prompt": "x", "assets": references}, lookup)
         finally:
             for key in added:
                 ASSETS.pop(key, None)

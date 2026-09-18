@@ -32,6 +32,7 @@ test("server-renders the default-English MiniMax H3 Video Studio shell", async (
   assert.match(html, /<title>MiniMax H3 Video Studio · Agent-ready AI Video Workspace<\/title>/i);
   assert.match(html, /class="studio-shell" data-i18n-ready="false" data-ui-language="en"/i);
   assert.match(html, /MiniMax H3 Video Studio/);
+  assert.match(html, /aria-controls="voice-studio-drawer"/);
   assert.doesNotMatch(html, /Your site is taking shape|react-loading-skeleton/);
 });
 

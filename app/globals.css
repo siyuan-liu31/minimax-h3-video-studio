@@ -195,6 +195,34 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .rail-drawer-header strong { color: #eef0f6; font-size: 13px; }
 .rail-drawer-header small { color: #687286; font-size: 8px; }
 .rail-drawer-header > button { width: 30px; height: 30px; border: 1px solid #303746; border-radius: 7px; background: #171c26; color: #a7afbe; cursor: pointer; font-size: 18px; }
+.voice-drawer { width: min(420px, calc(100vw - 62px)); }
+.voice-drawer-content { display: grid; align-content: start; gap: 13px; padding: 15px 14px 22px; }
+.voice-engine-picker, .voice-slot, .voice-task { min-width: 0; padding: 12px; border: 1px solid #2d3442; border-radius: 10px; background: #151a24; }
+.voice-engine-picker { display: grid; gap: 8px; }
+.voice-engine-picker label, .voice-existing-label > span { color: #9aa3b7; font-size: 11px; font-weight: 650; }
+.voice-engine-picker select, .voice-existing-label select { width: 100%; min-height: 36px; padding: 0 9px; border: 1px solid #3b4354; border-radius: 7px; background: #0b0f17; color: #e8e7f4; font-size: 11px; }
+.voice-engine-picker p, .voice-format-note, .voice-history > p { margin: 0; color: #929cb0; font-size: 10px; line-height: 1.5; }
+.voice-engine-picker small { font-size: 10px; line-height: 1.45; }
+.voice-available { color: #6ad9b7; }.voice-unavailable { color: #f0ad7d; }
+.voice-slot { display: grid; gap: 9px; }
+.voice-slot-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.voice-slot-heading strong { color: #eeeef7; font-size: 11px; }.voice-slot-heading small, .voice-selected-meta { color: #8994a9; font-size: 9px; }
+.voice-drop-zone { min-height: 96px; display: grid; justify-items: center; align-content: center; gap: 5px; padding: 10px; border: 1px dashed #59527d; border-radius: 8px; background: #100f1b; text-align: center; }
+.voice-drop-zone.dragging { border-color: #a89bff; background: #252044; }
+.voice-drop-zone > span { color: #aa9fff; font-size: 18px; }.voice-drop-zone p { max-width: 100%; margin: 0; overflow-wrap: anywhere; color: #d6d5e6; font-size: 10px; }
+.voice-drop-zone button, .voice-history-heading button, .voice-task-actions button, .voice-task-result a { min-height: 27px; padding: 4px 9px; border: 1px solid #514c82; border-radius: 6px; background: #292547; color: #ded9ff; font-size: 10px; text-decoration: none; cursor: pointer; }
+.voice-drop-zone button:disabled, .voice-submit:disabled, .voice-task-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.voice-existing-label { display: grid; gap: 5px; }.voice-selected-meta { justify-self: end; }
+.voice-input-preview { width: 100%; height: 32px; }
+.voice-error, .voice-task-error { padding: 8px; border: 1px solid #6a3844; border-radius: 6px; background: #2b1920; color: #f3acb8; font-size: 10px; line-height: 1.4; }
+.voice-submit { min-height: 39px; border: 1px solid #8175e9; border-radius: 8px; background: #675bd6; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
+.voice-history { display: grid; gap: 10px; padding-top: 6px; border-top: 1px solid #2c3240; }.voice-history-heading { display: flex; align-items: center; justify-content: space-between; }.voice-history-heading strong { font-size: 12px; }
+.voice-task { display: grid; gap: 7px; }.voice-task.status-completed { border-color: #315d50; }.voice-task.status-failed { border-color: #673844; }
+.voice-task-top { display: flex; align-items: center; justify-content: space-between; gap: 7px; }.voice-task-top strong { font-size: 10px; }.voice-task-top span { color: #c3bbff; font-size: 10px; white-space: nowrap; }
+.voice-task > small { overflow: hidden; color: #a4aec0; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.voice-task > p { margin: 0; color: #8996aa; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.voice-task-progress { display: flex; align-items: center; gap: 8px; color: #a9a1ee; font-size: 9px; }.voice-task-progress progress { flex: 1; height: 5px; accent-color: #8174ff; }
+.voice-task-result { display: grid; gap: 7px; }.voice-task-result audio { width: 100%; height: 34px; }.voice-task-result a { justify-self: start; display: inline-flex; align-items: center; }
+.voice-task-actions { display: flex; justify-content: flex-end; }.voice-task-actions button { border-color: #584550; background: #2d202a; color: #eeb7c3; }
 .library-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; padding: 12px 12px 0; }
 .library-actions button { min-height: 34px; border: 1px solid #343b4a; border-radius: 7px; background: #171c26; color: #c8ceda; cursor: pointer; font-size: 9px; }
 .library-actions button:first-child { border-color: #6459c4; background: #292451; color: #e3dfff; }
@@ -291,12 +319,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .library-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 12px 10px; padding: 8px 10px; border: 1px solid #713f49; border-radius: 7px; background: #2a171d; color: #f0abb5; font-size: 8px; }
 .library-error button { flex: none; min-height: 28px; padding: 4px 9px; border: 1px solid #7f4a55; border-radius: 5px; background: #351d24; color: #ffd3d9; cursor: pointer; }
 @media (max-width: 1050px) { .rail-drawer { left: 55px; width: min(340px, calc(100vw - 55px)); } }
+@media (min-width: 681px) and (max-width: 1050px) { .voice-drawer { width: min(420px, calc(100vw - 55px)); } }
 @media (max-width: 680px) {
   .workspace { padding-bottom: 58px; }
   .left-rail { position: fixed; z-index: 50; left: 0; right: 0; bottom: 0; width: 100%; height: 58px; display: flex; flex-direction: row; justify-content: space-around; padding: 4px 6px; border-top: 1px solid #282e3b; border-right: 0; }
   .left-rail .rail-button { width: min(64px, 19vw); height: 49px; flex: 0 1 64px; }
   .left-rail .rail-spacer, .left-rail .rail-button:last-child { display: none; }
   .rail-drawer { position: fixed; z-index: 45; left: 0; right: 0; top: 58px; bottom: 58px; width: 100%; border-right: 0; box-shadow: 0 -14px 40px #000b; }
+  .voice-drawer { width: 100%; }
   .library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .result-library-actions a, .result-library-actions button { min-height: 40px; font-size: 11px; }
   .result-library-preview-label { font-size: 10px; }

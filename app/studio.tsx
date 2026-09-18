@@ -21,6 +21,7 @@ import {
 } from "./studio-video-mode";
 import { VideoDirectorControls } from "./studio-video-mode-controls";
 import VideoTimeline from "./video-timeline";
+import VoiceStudio from "./voice-studio";
 import { H3_GENERATION_FPS, H3_MAX_GENERATION_DURATION, H3_MAX_GENERATION_FRAMES } from "./video-project";
 import { CANVAS_DOCUMENT_VERSION, H3_REFERENCE_BUDGET, LEGACY_STORAGE_KEYS as DOCUMENT_LEGACY_STORAGE_KEYS, V7_STORAGE_KEY, createCanvasNode, parseCanvasDocument, serializeCanvasDocument, type CanvasDocumentV7, type CanvasNode, type ImageGeneratorNode, type NodeResult, type VideoGeneratorNode } from "./studio-document";
 import { buildGeneratorExecutionPlan, buildOutputCollectionPlan, compilePromptDocument, connectMedia, disconnectMedia, invalidateDownstreamGenerators } from "./studio-graph";
@@ -450,7 +451,7 @@ export default function Studio() {
   const [assetLibraryState, setAssetLibraryState] = useState<"loading" | "ready" | "error">("loading");
   const [assetFolders, setAssetFolders] = useState<LibraryFolder[]>([]);
   const [savedResultAssets, setSavedResultAssets] = useState<Record<string, string>>({});
-  const [railPanel, setRailPanel] = useState<"assets" | "results" | "timeline" | null>(null);
+  const [railPanel, setRailPanel] = useState<"assets" | "results" | "timeline" | "voice" | null>(null);
   const [profiles, setProfiles] = useState<ProfileCapability[]>([]);
   const [unavailableProfiles, setUnavailableProfiles] = useState<UnavailableProfileCapability[]>([]);
   const [assetPickerTarget, setAssetPickerTarget] = useState<{ nodeId: string; media: MediaKind; slot: number }>();
@@ -2373,6 +2374,7 @@ export default function Studio() {
         <button className={`rail-button ${railPanel === "assets" ? "active" : ""}`} type="button" aria-controls="asset-library-drawer" aria-expanded={railPanel === "assets"} onClick={() => setRailPanel((current) => current === "assets" ? null : "assets")}><Icon>▣</Icon><span>资产</span></button>
         <button className={`rail-button ${railPanel === "results" ? "active" : ""}`} type="button" aria-controls="result-library-drawer" aria-expanded={railPanel === "results"} onClick={() => setRailPanel((current) => current === "results" ? null : "results")}><Icon>✓</Icon><span>结果</span></button>
         <button ref={timelineRailButtonRef} className={`rail-button ${railPanel === "timeline" ? "active" : ""}`} type="button" aria-controls="video-timeline-drawer" aria-expanded={railPanel === "timeline"} onClick={() => setRailPanel((current) => current === "timeline" ? null : "timeline")}><Icon>☷</Icon><span>长视频</span></button>
+        <button className={`rail-button ${railPanel === "voice" ? "active" : ""}`} type="button" aria-controls="voice-studio-drawer" aria-expanded={railPanel === "voice"} onClick={() => setRailPanel((current) => current === "voice" ? null : "voice")}><Icon>♫</Icon><span>换声</span></button>
         <button className="rail-button" type="button" onClick={() => inputRef.current?.click()}><Icon>＋</Icon><span>上传</span></button>
         <div className="rail-spacer"/><button className="rail-button" type="button" title="双击连线可删除"><Icon>?</Icon><span>帮助</span></button>
       </aside>
@@ -2441,6 +2443,7 @@ export default function Studio() {
         onClose={() => setRailPanel(null)}
       />}
       {railPanel === "timeline" && <VideoTimeline assets={assetLibrary} results={jobHistory} profiles={profiles} onUploadVideo={uploadTimelineVideo} onImportResult={importJobOutput} onAssetCreated={handleTimelineAssetCreated} onResultCreated={handleTimelineResultCreated} onClose={() => setRailPanel(null)}/>}
+      {railPanel === "voice" && <VoiceStudio assets={assetLibrary} onAssetCreated={(asset) => setAssetLibrary((current) => [asset, ...current.filter((item) => item.id !== asset.id)])} onClose={() => setRailPanel(null)}/>}
       <section id="studio-canvas-panel" role="tabpanel" className="canvas-wrap" aria-label="节点画布" aria-labelledby={canvasWorkspace ? canvasTabElementId(canvasWorkspace.activeCanvasId) : undefined} aria-hidden={railPanel === "timeline" ? true : undefined} inert={railPanel === "timeline" ? true : undefined} style={{ "--canvas-grid-size": `${28 * viewport.zoom}px`, "--canvas-grid-x": `${viewport.x}px`, "--canvas-grid-y": `${viewport.y}px` } as CSSProperties}>
         <div className={`drop-hint ${dragOver ? "visible" : ""}`}>松开以添加图片、视频或音频</div>
         <div className="canvas-scroll" ref={canvasViewportRef} onWheel={handleCanvasWheel} onPointerDown={startCanvasPan} onPointerMove={moveCanvasPan} onPointerUp={finishCanvasPan} onPointerCancel={finishCanvasPan} onContextMenu={openCanvasContextMenu} onDragOver={handleCanvasDragOver} onDragLeave={(event) => { if (event.currentTarget === event.target) setDragOver(false); }} onDrop={handleDrop}>

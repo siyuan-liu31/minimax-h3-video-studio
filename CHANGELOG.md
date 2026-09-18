@@ -6,6 +6,7 @@
 
 ### Added
 
+- Studio 左侧新增换声工作区：Vevo2 FM-only 与 YingMusic-SVC 模式选择、原音频/参考音频拖拽或文件选择上传、现有音频资产复用、可用性提示、持久任务进度/排队/取消/删除，以及完成 WAV 的试听和下载；英文界面同步支持。
 - 新增 Agent 友好的 `h3ctl video migrate-character`：支持本地与远端 locator、实用上不限时长的 24 FPS 源视频分窗、Base/Turbo 可配步数、Motion Context 音画连续、精确裁帧拼接、四种音频策略、断点恢复和存储预检。
 - 新增版本化 `video.character_migration` 能力与严格 Draft 2020-12 Agent operations `video.character_migration.plan`、`video.character_migration.produce`、`media.mux_audio`；服务端新增通用原子音频置换接口。
 - 新增项目内置 H3 生产 Skill 套件：人物对白生视频、舞蹈复刻与不限时长人物迁移，共享既有提示词编译器，并固化分段验收、尾段向前回填、稳定资产别名、断点恢复和成片交付流程。

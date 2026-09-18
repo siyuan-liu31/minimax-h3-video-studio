@@ -34,6 +34,10 @@ test("known interface copy switches in both directions without rewriting user te
   assert.equal(translateUiText("播放 source-24fps-311f.mp4", "en"), "Play source-24fps-311f.mp4");
   assert.equal(translateUiText("暂停 source-24fps-311f.mp4", "en"), "Pause source-24fps-311f.mp4");
   assert.equal(translateUiText("source-audio.wav 音频播放器", "en"), "source-audio.wav audio player");
+  assert.equal(translateUiText("排队中", "en"), "Queued");
+  assert.equal(translateUiText("队列第 2 位", "en"), "Queue position 2");
+  assert.equal(translateUiText("5.3 秒", "en"), "5.3 sec");
+  assert.equal(translateUiText("换声请求失败 (502)", "en"), "Voice request failed (502)");
   assert.equal(translateUiText("连到生图", "en"), "Connect to Image Generation");
   assert.equal(translateUiText("耗时 9 分 36 秒", "en"), "Elapsed 9 min 36 sec");
   assert.equal(translateUiText("已恢复 1 个画布；当前为“画布 1”。", "en"), "Restored 1 canvas; current: “Canvas 1”.");

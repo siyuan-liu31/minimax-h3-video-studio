@@ -1,6 +1,6 @@
 # MiniMax H3 Video Studio LLM Wiki
 
-> 最后更新：2026-09-04（Asia/Shanghai）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
+> 最后校准：2026-09-18（Asia/Shanghai，本地源码与测试；本次未连接开发机）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
 
 ## 1. 先看这里
 
@@ -36,7 +36,7 @@ Browser :3013
 | H3 Base latent 断点续采 | `server/checkpoints.py`, `server/workflows.py`, `server/profiles.py` | `server/tests/test_checkpoints.py`, `tests/studio-history.test.mjs` |
 | 长视频模型与 UI | `app/video-project.ts`, `app/video-timeline.tsx`, `app/video-director-*.tsx` | `tests/video-timeline*.test.mjs`, `tests/video-director-model.test.mjs` |
 | 长视频执行、续接、合并 | `server/video_projects.py` | `server/tests/test_video_projects.py` |
-| 音色转换、换声 Worker | `server/voice.py`, `server/voice_worker.py` | `server/tests/test_voice.py` |
+| 音色转换、换声前端与 Worker | `app/voice-studio.tsx`, `app/voice-studio-api.ts`, `server/voice.py`, `server/voice_worker.py` | `tests/voice-studio.test.mjs`, `server/tests/test_voice.py` |
 | GPU 独占租约、驻留模型和队列 | `server/gpu_resources.py`, `server/comfy_tasks.py` | `server/tests/test_gpu_resources.py`, `server/tests/test_comfy_tasks.py` |
 | 启动、网关、远端运维 | `scripts/h3studio.py`, `scripts/start.mjs`, `scripts/gateway.mjs` | `scripts/ops/tests/test_h3studio.py`, `tests/gateway.test.mjs` |
 | 本地抖音解析、下载与 Swagger API | `cli/internal/douyin/`, `cli/internal/command/douyin.go` | `cli/internal/douyin/*_test.go`, `cli/internal/command/command_test.go` |
@@ -47,6 +47,8 @@ Browser :3013
 app/
   page.tsx                     页面入口，挂载 Studio
   studio.tsx                   主画布与大部分用户交互（当前最大前端文件）
+  voice-studio.tsx             侧栏换声工作区、音频拖入/选择/试听、任务状态
+  voice-studio-api.ts          换声前端 API 合同、回执解析和上传格式预检
   studio-document.ts           CanvasDocument V7、迁移、Profile 解析
   studio-graph.ts              类型化连线、依赖计划、Prompt 标签编号
   studio-workspace.ts          多画布标签和 localStorage 原子提交
@@ -178,6 +180,12 @@ Studio 首次访问默认英文，用户可在顶栏切换 English / 中文；�
 把该锚点换算为画布坐标；固定 `NODE_SIZE` 只用于首次测量前的回退、概览和视口定位。
 资产工具展开、语言切换造成文案换行或节点高度变化时，观察器会自动刷新 SVG 曲线。
 修改端口 DOM/CSS 时必须保留 `data-node-id` 与输入/输出端口选择器，并回归验证连线起止点。
+
+### 3.5 换声工作区
+
+左侧「换声」入口挂载独立的 `VoiceStudio` 抽屉，不新增 CanvasDocument V7 节点或本地任务副本。原音频和参考音频各有单文件拖拽/选择区，也可选服务端资产库的既有音频；上传经 `POST /api/assets`，成功后立即合入共用资产状态。前端预检扩展名 WAV、FLAC、OGG、MP3，服务端仍检查文件签名；M4A/AAC 当前不在可上传范围。两个输入和完成结果的播放器使用 `preload="none"`，避免打开面板就下载音频。
+
+引擎选项是 Vevo2 FM-only（语音/清唱）和 YingMusic-SVC（歌曲人声分离、转换、重混）。提交前读取 `GET /api/voice/capabilities`，仅在所选引擎 `available`、两个资产有效且没有上传/提交动作时启用按钮；不能通过前端绕开服务端能力检查。`POST /api/voice/tasks` 带随机 `request_id`，任务历史从服务端 `GET /api/voice/tasks` 恢复；活跃任务每 2.5 秒刷新一次，显示进度、GPU 队列位置与等待原因。取消和删除调用各自的服务端 API；删除仅在终态显示，并会删除输出。完成结果从受控下载端点试听/下载 WAV。没有配置外部运行时或 GPU 的本地环境只能验证 UI/API 合同，不能据此声称推理已通过。
 
 ## 4. 视频模式与 Prompt
 

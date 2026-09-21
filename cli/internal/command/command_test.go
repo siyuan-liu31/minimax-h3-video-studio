@@ -390,11 +390,35 @@ func TestVoiceConvertRejectsUnsafeOrContradictoryFlagsBeforeNetwork(t *testing.T
 		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "unknown"},
 		{"voice", "convert", "asset:" + testAssetID, "--engine", "vevo2"},
 		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "vevo2", "--detach", "--to", "x.wav"},
+		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "vevo2", "--seed", "42"},
+		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "yingmusic", "--steps", "9"},
+		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "yingmusic", "--cfg", "2.1"},
 	} {
 		code, _, _ := executeTest(t, args, "")
 		if code != 2 {
 			t.Fatalf("args=%v code=%d", args, code)
 		}
+	}
+}
+
+func TestVoiceConvertYingMusicPassesTuning(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/voice/tasks" {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"task_id": testMediaID, "status": "queued"})
+	}))
+	defer server.Close()
+	code, out, stderr := executeTest(t, []string{"--server", server.URL, "voice", "convert", "asset:" + testAssetID,
+		"--reference", "asset:" + testJobID, "--engine", "yingmusic", "--steps", "75", "--cfg", "0.9", "--seed", "42", "--detach"}, "")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d out=%s stderr=%s", code, out, stderr)
+	}
+	if payload["diffusion_steps"] != float64(75) || payload["inference_cfg_rate"] != 0.9 || payload["seed"] != float64(42) {
+		t.Fatalf("payload=%v", payload)
 	}
 }
 

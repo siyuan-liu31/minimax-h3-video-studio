@@ -187,9 +187,11 @@ Studio 首次访问默认英文，用户可在顶栏切换 English / 中文；�
 
 左侧「换声」入口挂载独立的 `VoiceStudio` 抽屉，不新增 CanvasDocument V7 节点或本地任务副本。原音频和参考音频各有单文件拖拽/选择区，也可选服务端资产库的既有音频；上传经 `POST /api/assets`，成功后立即合入共用资产状态。前端预检扩展名 WAV、FLAC、OGG、MP3，服务端仍检查文件签名；M4A/AAC 当前不在可上传范围。两个输入和完成结果的播放器使用 `preload="none"`，避免打开面板就下载音频。
 
-原音频还可用浏览器话筒录制：只在用户点「开始录音」后请求权限，最长 5 分钟；停止后先在浏览器本地解码并编码为保持设备采样率的 PCM16 单声道 WAV，供用户试听。只有用户再点「使用这段录音」才通过现有 `POST /api/assets` 上传并选为原音频，录音不会自动提交换声任务。取消、丢弃、关闭抽屉及异常路径停止媒体轨道并释放本地预览 URL；上传失败保留本地试听以便重试。浏览器话筒要求安全上下文（HTTPS 或 localhost）及 `getUserMedia`、`MediaRecorder`、`AudioContext` 支持。这是录后转换，不是实时监听变声；无 GPU 时只能测试录音/WAV/UI/API 链路，不能验证模型音质。
+浏览器话筒也可提供音频：只在用户点「开始录音」后请求权限，最长 5 分钟；停止后先在浏览器本地解码并编码为保持设备采样率的 PCM16 单声道 WAV，供用户试听。用户可把这段录音选为原音频或参考音频；只有再点「使用这段录音」才通过现有 `POST /api/assets` 上传到所选槽位，录音不会自动提交换声任务。取消、丢弃、关闭抽屉及异常路径停止媒体轨道并释放本地预览 URL；上传失败保留本地试听以便重试。浏览器话筒要求安全上下文（HTTPS 或 localhost）及 `getUserMedia`、`MediaRecorder`、`AudioContext` 支持。这是录后转换，不是实时监听变声；无 GPU 时只能测试录音/WAV/UI/API 链路，不能验证模型音质。
 
 引擎选项是 Vevo2 FM-only（语音/清唱）和 YingMusic-SVC（歌曲人声分离、转换、重混）。提交前读取 `GET /api/voice/capabilities`，仅在所选引擎 `available`、两个资产有效且没有上传/提交动作时启用按钮；不能通过前端绕开服务端能力检查。`POST /api/voice/tasks` 带随机 `request_id`，任务历史从服务端 `GET /api/voice/tasks` 恢复；活跃任务每 2.5 秒刷新一次，显示进度、GPU 队列位置与等待原因。取消和删除调用各自的服务端 API；删除仅在终态显示，并会删除输出。完成结果从受控下载端点试听/下载 WAV。没有配置外部运行时或 GPU 的本地环境只能验证 UI/API 合同，不能据此声称推理已通过。
+
+YingMusic 的 `capabilities.engines[].tuning` 公布范围/默认值；只有服务端支持时前端才展示/提交 `diffusion_steps`（10–200，默认 100）、`inference_cfg_rate`（0–2，默认 0.7）、`seed`（-1 或 0–4294967295，默认 -1）。-1 在服务端按任务生成实际种子，实际值随持久回执 `parameters` 返回；相同 `request_id` 重放复用原任务/种子。Worker 在人声转换前设置 Python、NumPy、PyTorch/CUDA RNG，且每任务重置步数/引导强度，避免驻留 Worker 把前一次参数带入下一次。种子影响扩散初始噪声，但 CUDA 非确定性和环境差异不保证位级一致。100 步为上游 Gradio/脚本的质量-耗时折中，不宣称普适最优；模型 FP16、分离/重混选项维持原完整工作流，不与推理步数一并调整。
 
 `ProcessVoiceWorker.status()` 读取原子发布的驻留状态快照，不获取覆盖模型加载/推理全程的 Worker 运行锁；因此换声任务进行时，能力查询和前端面板不会被长推理阻塞。
 
@@ -387,7 +389,7 @@ API 路由集中在 `server/app.py::Handler`：
 `cli/cmd/h3ctl` 是面向 Agent 与脚本的正式 API 客户端，不替代 Python API，也不复制 `workflows.py` 的编译逻辑。命令层只解析参数，`internal/operation` 承载可供未来 workflow DAG 直接调用的原子能力。
 
 - 生成使用“提交 `job_id` + 短请求轮询”；CLI 断开不取消服务端任务，`Ctrl-C` 默认只停止本地等待。
-- `voice convert` 用两个音频 locator 提交持久换声任务，默认等待，`--detach` 只返回 task ID；`voice.*` 和 `gpu.status` 也是 Agent 原子 operation。
+- `voice convert` 用两个音频 locator 提交持久换声任务，默认等待，`--detach` 只返回 task ID；YingMusic 可选 `--steps`、`--cfg`、`--seed`，Agent 的 `voice.convert` 对应字段为 `diffusion_steps`、`inference_cfg_rate`、`seed`；`voice.*` 和 `gpu.status` 也是 Agent 原子 operation。
 - `media prepare-reference` 与 `media.prepare_reference` 共用服务端派生；本地输入先上传，CLI 本机不需要 ffmpeg。`job resume` 与 `job.resume` 只提交任务 ID、追加步数和幂等 request ID，可继续等待/下载。
 - `video compose` / `video.compose` 是端到端长视频入口：自动补齐 Profile 版本与摘要，再组合项目创建、顺序生成、Motion Context 裁头、合并等待和原子下载。`video trim` 复用 `media trim`，`video concat` 复用 `project merge`，底层原子 operation 仍可独立调用。
 - `video migrate-character` 先解析本地/asset/job/media/当前 context 资源，用纯规划器返回分窗、所有权、尾裁与存储估算，再创建持久项目。`--detach` 只返回 project ID；中断后通过现有 project 原子操作恢复，已完成段不重算。Agent 对应严格 Draft 2020-12 operation `video.character_migration.plan` / `.produce`，通用音频置换是 `media.mux_audio`。

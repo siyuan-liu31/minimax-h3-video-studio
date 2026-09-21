@@ -294,7 +294,7 @@ version, profiles, frame grids, audio policies, and Motion Context status.
 ## Voice conversion
 
 Voice conversion is also available in the Studio sidebar, including browser
-microphone recording for the source. The CLI/Agent commands below upload local
+microphone recording for either the source or reference. The CLI/Agent commands below upload local
 inputs as audio assets and return a durable task ID. Conversion waits by
 default; use `--detach` to submit without keeping the CLI connected.
 
@@ -305,7 +305,8 @@ h3ctl voice convert ./source.wav \
 
 # Song: YingMusic separation -> lead-vocal SVC -> accompaniment remix.
 h3ctl voice convert ./song.wav \
-  --reference asset:REFERENCE_ID --engine yingmusic --detach --json
+  --reference asset:REFERENCE_ID --engine yingmusic \
+  --steps 100 --cfg 0.7 --seed -1 --detach --json
 h3ctl voice status TASK_ID --json
 h3ctl voice wait TASK_ID --timeout 2h --output jsonl
 h3ctl voice download TASK_ID --to ./converted-song.wav
@@ -316,6 +317,15 @@ accepted formats are MP3, WAV, FLAC, and OGG; changing only a filename suffix
 does not bypass validation. Both engines deliver lossless WAV
 (`audio/wav`, `converted.wav`) to avoid an extra lossy encode before later
 mixing or editing.
+
+For YingMusic, `--steps` accepts 10–200 (default 100), `--cfg` accepts 0–2
+(default 0.7), and `--seed` accepts -1 or 0–4294967295 (default -1). `-1`
+generates a fresh seed for each task; the task receipt includes the effective
+seed under `parameters`, and `voice status` can retrieve it later. Reuse that
+seed for another draw with the same settings. The upstream 100-step setting is
+a quality/speed balance, not a universal best result. GPU inference may not
+be bit-for-bit deterministic. `voice.convert` accepts the API field names
+`diffusion_steps`, `inference_cfg_rate`, and `seed` for YingMusic only.
 
 `voice cancel`, `voice delete`, `voice capabilities`, and the Agent operations
 `voice.convert|get|wait|cancel|delete|download` are also available. A local Ctrl-C

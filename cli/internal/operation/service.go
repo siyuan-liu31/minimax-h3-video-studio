@@ -173,9 +173,12 @@ func (s *Service) MuxAudio(ctx context.Context, video, audio string, body map[st
 	return value, nil
 }
 
-func (s *Service) SubmitVoice(ctx context.Context, engine, source, reference, requestID string) (map[string]any, error) {
+func (s *Service) SubmitVoice(ctx context.Context, engine, source, reference, requestID string, tuning ...map[string]any) (map[string]any, error) {
 	if engine != "vevo2" && engine != "yingmusic" {
 		return nil, contract.NewError("invalid_argument", "voice engine must be vevo2 or yingmusic")
+	}
+	if len(tuning) > 1 || (engine != "yingmusic" && len(tuning) > 0 && len(tuning[0]) > 0) {
+		return nil, contract.NewError("invalid_argument", "voice tuning is supported only for yingmusic")
 	}
 	if requestID == "" {
 		raw := make([]byte, 16)
@@ -195,6 +198,16 @@ func (s *Service) SubmitVoice(ctx context.Context, engine, source, reference, re
 	body := map[string]any{
 		"engine": engine, "source_asset_id": sourceRef["asset_id"],
 		"reference_asset_id": referenceRef["asset_id"], "request_id": requestID,
+	}
+	if len(tuning) == 1 {
+		for key, value := range tuning[0] {
+			switch key {
+			case "diffusion_steps", "inference_cfg_rate", "seed":
+				body[key] = value
+			default:
+				return nil, contract.NewError("invalid_argument", "unsupported voice tuning parameter")
+			}
+		}
 	}
 	value := map[string]any{}
 	status, err := s.API.JSONStatus(ctx, http.MethodPost, "/api/voice/tasks", body, &value)

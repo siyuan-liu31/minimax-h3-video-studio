@@ -7,10 +7,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MAX_MICROPHONE_SECONDS, recordedMicrophoneFile } from "./microphone-audio";
 
 type Phase = "idle" | "requesting" | "recording" | "processing" | "discarding" | "ready" | "uploading";
+export type RecordingDestination = "source" | "reference";
 type Props = {
   disabled: boolean;
   onPendingChange: (pending: boolean) => void;
-  onRecorded: (file: File) => Promise<boolean>;
+  onRecorded: (file: File, destination: RecordingDestination) => Promise<boolean>;
 };
 
 function stopStream(stream: MediaStream | null) {
@@ -31,6 +32,7 @@ export default function MicrophoneRecorder({ disabled, onPendingChange, onRecord
   const [recordedFile, setRecordedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [error, setError] = useState("");
+  const [destination, setDestination] = useState<RecordingDestination>("source");
   const mountedRef = useRef(false);
   const canceledRequestRef = useRef(false);
   const discardRef = useRef(false);
@@ -209,7 +211,7 @@ export default function MicrophoneRecorder({ disabled, onPendingChange, onRecord
     if (!recordedFile || phase !== "ready" || disabled) return;
     setPhase("uploading");
     try {
-      if (await onRecorded(recordedFile)) {
+      if (await onRecorded(recordedFile, destination)) {
         if (!mountedRef.current) return;
         clearPreview();
         setPhase("idle");
@@ -226,7 +228,7 @@ export default function MicrophoneRecorder({ disabled, onPendingChange, onRecord
 
   const duration = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
   return <section className="voice-microphone" aria-label="话筒录音">
-    <div className="voice-microphone-heading"><strong>话筒录音</strong><small>录完试听，确认后上传为原音频</small></div>
+    <div className="voice-microphone-heading"><strong>话筒录音</strong><small>录完试听，选择用途后上传</small></div>
     {phase === "idle" && <button type="button" disabled={disabled} onClick={() => void startRecording()}>开始录音</button>}
     {phase === "requesting" && <div className="voice-microphone-actions"><span>正在请求话筒权限…</span><button type="button" onClick={discard}>取消录音</button></div>}
     {phase === "recording" && <div className="voice-microphone-actions"><span role="status">录音中 {duration}</span><button type="button" onClick={() => stopRecording(false)}>停止录音</button><button type="button" onClick={discard}>丢弃录音</button></div>}
@@ -234,6 +236,10 @@ export default function MicrophoneRecorder({ disabled, onPendingChange, onRecord
     {phase === "discarding" && <span role="status">正在丢弃录音…</span>}
     {(phase === "ready" || phase === "uploading") && recordedFile && <>
       <audio controls preload="none" src={previewUrl} aria-label="试听本地录音"/>
+      <fieldset className="voice-microphone-destination" disabled={disabled || phase === "uploading"}><legend>这段录音用作</legend>
+        <label><input type="radio" name="voice-recording-destination" value="source" checked={destination === "source"} onChange={() => setDestination("source")}/>原音频</label>
+        <label><input type="radio" name="voice-recording-destination" value="reference" checked={destination === "reference"} onChange={() => setDestination("reference")}/>参考音频</label>
+      </fieldset>
       <div className="voice-microphone-actions"><span>{duration}</span><button type="button" disabled={disabled || phase === "uploading"} onClick={() => void acceptRecording()}>{phase === "uploading" ? "正在上传录音…" : "使用这段录音"}</button><button type="button" disabled={phase === "uploading"} onClick={discard}>丢弃录音</button></div>
     </>}
     <small>最长 5 分钟。仅在点击“使用这段录音”后上传；离开面板会关闭话筒并丢弃未上传录音。</small>

@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -289,6 +290,7 @@ class YingMusicEngine:
     def run(self, request: dict[str, Any]) -> Path:
         from accom_separation.inference import run_folder
         from Remix.auger import echo_then_reverb_save
+        import numpy as np
 
         source = Path(str(request["source"])).resolve()
         reference = Path(str(request["reference"])).resolve()
@@ -331,6 +333,17 @@ class YingMusicEngine:
             self.svc_args.output = str(work_root / "svc")
             self.svc_args.expname = "converted"
             self.svc_args.uuid = str(request.get("task_id", "worker"))
+            parameters = request.get("parameters") or {}
+            self.svc_args.diffusion_steps = int(parameters.get("diffusion_steps", 100))
+            self.svc_args.inference_cfg_rate = float(parameters.get("inference_cfg_rate", 0.7))
+            seed = parameters.get("seed")
+            if seed is not None:
+                seed = int(seed)
+                random.seed(seed)
+                np.random.seed(seed)
+                self.torch.manual_seed(seed)
+                if self.torch.cuda.is_available():
+                    self.torch.cuda.manual_seed_all(seed)
             with contextlib.redirect_stdout(sys.stderr):
                 converted = Path(self.run_inference(self.svc_args, self.svc_bundle, device=self.device))
                 mixed = work_root / "mixed.wav"

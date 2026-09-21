@@ -321,6 +321,27 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 	}
 }
 
+func TestVoiceConvertOperationPassesYingMusicTuning(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/voice/tasks" {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"task_id": "cccccccccccccccccccccccccccccccc", "status": "queued"})
+	}))
+	defer server.Close()
+	runtime := Runtime{Service: &Service{API: api.New(server.URL, time.Second), Context: "test"}}
+	input := decodeObject(t, `{"engine":"yingmusic","source":"asset:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","reference":"asset:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","diffusion_steps":75,"inference_cfg_rate":0.9,"seed":42}`)
+	if _, err := Execute(context.Background(), runtime, "voice.convert", input); err != nil {
+		t.Fatal(err)
+	}
+	if payload["diffusion_steps"] != float64(75) || payload["inference_cfg_rate"] != 0.9 || payload["seed"] != float64(42) {
+		t.Fatalf("payload=%v", payload)
+	}
+}
+
 func TestNonIdempotentCreateInvalidIDsAreNotMarkedRetryable(t *testing.T) {
 	for _, test := range []struct {
 		name, input string

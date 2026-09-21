@@ -62,10 +62,13 @@ test("microphone UI requires explicit upload and releases the captured stream on
   assert.match(recorder, /recorder\.onstop = \(\) =>/);
   assert.match(recorder, /recorder\.onstop = \(\) => \{\s+clearTimers\(\);\s+stopStream\(streamRef\.current\);/);
   assert.match(recorder, /recordedMicrophoneFile\(recorded\)/);
-  assert.match(recorder, /if \(await onRecorded\(recordedFile\)\)/);
+  assert.match(recorder, /if \(await onRecorded\(recordedFile, destination\)\)/);
+  assert.match(recorder, /value="source" checked=\{destination === "source"\}/);
+  assert.match(recorder, /value="reference" checked=\{destination === "reference"\}/);
   assert.match(recorder, /stopStream\(streamRef\.current\)/);
   assert.match(recorder, /URL\.revokeObjectURL/);
   assert.match(drawer, /<MicrophoneRecorder/);
+  assert.match(drawer, /onRecorded=\{\(file, destination\) => upload\(destination, file\)\}/);
   assert.match(drawer, /!microphonePending && !submitting/);
   assert.equal(translateUiText("话筒录音", "en"), "Microphone Recording");
   assert.equal(translateUiText("使用这段录音", "en"), "Use This Recording");

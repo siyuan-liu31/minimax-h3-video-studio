@@ -225,7 +225,10 @@ func buildDefinitions() map[string]Definition {
 	add("media.delete", []string{"media_id"}, map[string]any{"media_id": idRule})
 	add("voice.convert", []string{"engine", "source", "reference"}, map[string]any{
 		"engine": enum("vevo2", "yingmusic"), "source": stringRule, "reference": stringRule,
-		"request_id": idRule, "wait": boolRule, "timeout_seconds": numberRule(0),
+		"diffusion_steps":    map[string]any{"type": "integer", "minimum": 10, "maximum": 200},
+		"inference_cfg_rate": map[string]any{"type": "number", "minimum": 0, "maximum": 2},
+		"seed":               map[string]any{"type": "integer", "minimum": -1, "maximum": 4294967295},
+		"request_id":         idRule, "wait": boolRule, "timeout_seconds": numberRule(0),
 		"poll_seconds": numberRule(0), "download": map[string]any{"type": "string"}, "force": boolRule,
 	})
 	add("voice.get", []string{"task_id"}, map[string]any{"task_id": idRule})

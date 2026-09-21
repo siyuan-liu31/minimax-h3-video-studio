@@ -9,7 +9,8 @@ import MicrophoneRecorder from "./microphone-recorder";
 import {
   cancelVoiceTask, deleteVoiceTask, getVoiceCapabilities, isSupportedVoiceAudio,
   listVoiceTasks, submitVoiceTask, uploadVoiceAudio, voiceDownloadUrl,
-  type VoiceCapability, type VoiceEngine, type VoiceTask,
+  validateYingMusicParameters, YINGMUSIC_DEFAULTS,
+  type VoiceCapability, type VoiceEngine, type VoiceTask, type YingMusicParameters,
 } from "./voice-studio-api";
 
 type Slot = "source" | "reference";
@@ -85,6 +86,9 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   const [submitting, setSubmitting] = useState(false);
   const [actionId, setActionId] = useState("");
   const [error, setError] = useState("");
+  const [steps, setSteps] = useState(String(YINGMUSIC_DEFAULTS.diffusion_steps));
+  const [cfg, setCfg] = useState(String(YINGMUSIC_DEFAULTS.inference_cfg_rate));
+  const [seed, setSeed] = useState(String(YINGMUSIC_DEFAULTS.seed));
   const uploadControllerRef = useRef<AbortController | null>(null);
   const refreshRequestRef = useRef(0);
 
@@ -121,7 +125,14 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   }, [refreshTasks, tasks]);
 
   const selectedCapability = capabilities.find((item) => item.id === engine);
-  const canSubmit = capabilityState === "ready" && selectedCapability?.available === true && audioAssets.some((asset) => asset.id === sourceId) && audioAssets.some((asset) => asset.id === referenceId) && !uploading && !microphonePending && !submitting;
+  function currentParameters(): YingMusicParameters | undefined {
+    if (engine !== "yingmusic") return undefined;
+    if (!steps.trim() || !cfg.trim() || !seed.trim()) throw new Error("请填写全部歌曲换声参数");
+    return validateYingMusicParameters({ diffusion_steps: Number(steps), inference_cfg_rate: Number(cfg), seed: Number(seed) });
+  }
+  let parametersValid = true;
+  try { currentParameters(); } catch { parametersValid = false; }
+  const canSubmit = capabilityState === "ready" && selectedCapability?.available === true && (engine !== "yingmusic" || Boolean(selectedCapability.tuning)) && parametersValid && audioAssets.some((asset) => asset.id === sourceId) && audioAssets.some((asset) => asset.id === referenceId) && !uploading && !microphonePending && !submitting;
 
   async function upload(slot: Slot, file: File): Promise<boolean> {
     if (uploading) return false;
@@ -147,7 +158,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
     if (!canSubmit) return;
     setSubmitting(true); setError("");
     try {
-      const task = await submitVoiceTask(engine, sourceId, referenceId);
+      const task = await submitVoiceTask(engine, sourceId, referenceId, currentParameters());
       refreshRequestRef.current += 1;
       setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
       setTasksState("ready");
@@ -182,10 +193,20 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
         <option value="vevo2">{ENGINE_LABELS.vevo2}</option><option value="yingmusic">{ENGINE_LABELS.yingmusic}</option>
       </select><p>{engine === "vevo2" ? "给一段说话或清唱，换成参考音频的音色。" : "分离歌曲人声、换成参考音色，再与原伴奏重混。"}</p>
       {capabilityState === "loading" ? <small>正在检查模型可用性…</small> : capabilityState === "error" ? <small className="voice-unavailable">无法读取模型能力，暂不能提交。</small> : selectedCapability?.available ? <small className="voice-available">模型已就绪</small> : <small className="voice-unavailable">模型未就绪：{selectedCapability?.reason ?? "服务端未提供该引擎"}</small>}
+      {engine === "yingmusic" && selectedCapability?.available && !selectedCapability.tuning && <small className="voice-unavailable">服务端尚未提供歌曲参数能力，请更新后再提交。</small>}
       </div>
       <AudioSlot slot="source" label="原音频" selectedId={sourceId} assets={audioAssets} uploading={uploading !== null || microphonePending} onSelect={setSourceId} onFile={(file) => void upload("source", file)} onError={setError}/>
-      <MicrophoneRecorder disabled={uploading !== null || submitting} onPendingChange={setMicrophonePending} onRecorded={(file) => upload("source", file)}/>
+      <MicrophoneRecorder disabled={uploading !== null || submitting} onPendingChange={setMicrophonePending} onRecorded={(file, destination) => upload(destination, file)}/>
       <AudioSlot slot="reference" label="参考音频" selectedId={referenceId} assets={audioAssets} uploading={uploading !== null} onSelect={setReferenceId} onFile={(file) => void upload("reference", file)} onError={setError}/>
+      {engine === "yingmusic" && selectedCapability?.tuning && <section className="voice-tuning" aria-label="歌曲换声参数">
+        <strong>歌曲换声参数</strong>
+        <div className="voice-tuning-fields">
+          <label>采样步数<input type="number" min="10" max="200" step="1" value={steps} onChange={(event) => setSteps(event.target.value)}/></label>
+          <label>引导强度<input type="number" min="0" max="2" step="0.05" value={cfg} onChange={(event) => setCfg(event.target.value)}/></label>
+          <label>随机种子<input type="number" min="-1" max="4294967295" step="1" value={seed} onChange={(event) => setSeed(event.target.value)}/></label>
+        </div>
+        <small>官方流程推荐 100 步作为质量与速度折中，并非所有歌曲的最优值。-1 表示每次随机；任务中会记录实际种子。改用记录的种子可复现抽卡条件，GPU 运行仍可能有微小差异。</small>
+      </section>}
       <p className="voice-format-note">支持 WAV、FLAC、OGG、MP3；服务端会校验真实格式。结果输出 WAV。</p>
       {error && <div className="voice-error" role="alert">{error}</div>}
       <button className="voice-submit" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting ? "提交中…" : "开始换声"}</button>
@@ -196,6 +217,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
         {tasks.map((task) => <article className={`voice-task status-${task.status}`} key={task.id}>
           <div className="voice-task-top"><strong>{ENGINE_LABELS[task.engine]}</strong><span>{STATUS_LABELS[task.status]}</span></div>
           <small title={task.id}>{taskLabel(task.sourceAssetId, audioAssets)} → {taskLabel(task.referenceAssetId, audioAssets)}</small>
+          {task.parameters && <small className="voice-task-parameters">{task.parameters.diffusion_steps} 步 · 引导 {task.parameters.inference_cfg_rate} · 种子 {task.parameters.seed} <button type="button" onClick={() => { setEngine("yingmusic"); setSteps(String(task.parameters?.diffusion_steps)); setCfg(String(task.parameters?.inference_cfg_rate)); setSeed(String(task.parameters?.seed)); }}>复用参数</button></small>}
           <div className="voice-task-progress"><progress max="100" value={task.progress} aria-label="换声进度"/><span>{Math.round(task.progress)}%</span></div>
           <p><span>{STAGE_LABELS[task.stage] ?? task.stage}</span>{task.status === "queued" && typeof task.queuePosition === "number" && <> · <span>{`队列第 ${task.queuePosition} 位`}</span></>}{task.queueReason && <> · <span>{QUEUE_REASONS[task.queueReason] ?? task.queueReason}</span></>}</p>
           {task.error && <p className="voice-task-error">{task.error}</p>}

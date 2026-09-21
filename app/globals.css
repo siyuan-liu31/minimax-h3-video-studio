@@ -224,6 +224,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .voice-microphone button { min-height: 29px; padding: 5px 9px; border: 1px solid #514c82; border-radius: 6px; background: #292547; color: #ded9ff; font-size: 10px; cursor: pointer; }
 .voice-microphone button:disabled { opacity: .5; cursor: not-allowed; }
 .voice-microphone audio { width: 100%; height: 34px; }
+.voice-microphone-destination { display: flex; gap: 14px; margin: 0; padding: 5px 8px 8px; border: 1px solid #3b4354; border-radius: 6px; }
+.voice-microphone-destination legend, .voice-microphone-destination label { color: #c8c3e7; font-size: 10px; }
+.voice-microphone-destination label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.voice-tuning { display: grid; gap: 8px; padding: 12px; border: 1px solid #2d3442; border-radius: 10px; background: #151a24; }
+.voice-tuning strong { color: #eeeef7; font-size: 11px; }
+.voice-tuning-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.voice-tuning-fields label { display: grid; gap: 5px; color: #aeb7ca; font-size: 10px; }
+.voice-tuning-fields input { width: 100%; min-width: 0; min-height: 33px; padding: 5px 6px; border: 1px solid #3b4354; border-radius: 6px; background: #0b0f17; color: #e8e7f4; font-size: 11px; }
+.voice-tuning small { color: #8994a9; font-size: 9px; line-height: 1.5; }
+.voice-task-parameters { white-space: normal !important; }
+.voice-task-parameters button { padding: 2px 5px; border: 1px solid #514c82; border-radius: 5px; background: #292547; color: #ded9ff; font-size: 9px; cursor: pointer; }
 .voice-microphone-error { margin: 0; color: #f3acb8; font-size: 10px; line-height: 1.4; }
 .voice-error, .voice-task-error { padding: 8px; border: 1px solid #6a3844; border-radius: 6px; background: #2b1920; color: #f3acb8; font-size: 10px; line-height: 1.4; }
 .voice-submit { min-height: 39px; border: 1px solid #8175e9; border-radius: 8px; background: #675bd6; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }

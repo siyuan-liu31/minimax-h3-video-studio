@@ -10,11 +10,12 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from server.errors import ApiError
 from server.gpu_resources import GpuResourceManager
 from server.tests.test_workflows import config as base_config
-from server.voice import ProcessVoiceWorker, VoiceTaskManager, voice_capability
+from server.voice import ProcessVoiceWorker, VoiceTaskManager, voice_capability, yingmusic_parameters
 from server.voice_worker import _prepend_sys_path
 
 
@@ -46,12 +47,14 @@ class FakeAssets:
 class FakeWorker:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.requests: list[dict] = []
         self.block = False
         self.started = threading.Event()
         self.stops = 0
 
     def run(self, engine, request, cancel):
         self.calls.append(engine)
+        self.requests.append(request)
         self.started.set()
         while self.block and not cancel.wait(0.01):
             pass
@@ -123,6 +126,35 @@ class VoiceTaskTests(unittest.TestCase):
         with self.assertRaises(ApiError) as raised:
             self.manager.submit({**body, "source_asset_id": "b" * 32})
         self.assertEqual(raised.exception.code, "idempotency_conflict")
+
+    def test_yingmusic_parameters_seed_and_idempotency(self) -> None:
+        body = {"engine": "yingmusic", "source_asset_id": "a" * 32, "reference_asset_id": "b" * 32,
+                "request_id": "9" * 32, "diffusion_steps": 75, "inference_cfg_rate": 0.9, "seed": -1}
+        with patch("server.voice.voice_capability", return_value={"available": True}):
+            first = self.manager.submit(body)
+            replay = self.manager.submit(body)
+            self.assertEqual(first["id"], replay["id"])
+            self.assertEqual(first["parameters"], replay["parameters"])
+            self.assertTrue(0 <= first["parameters"]["seed"] <= 4294967295)
+            self.assertEqual(self.wait_terminal(first["id"])["status"], "completed")
+            self.assertEqual(self.worker.requests[0]["parameters"], first["parameters"])
+            with self.assertRaises(ApiError) as raised:
+                self.manager.submit({**body, "diffusion_steps": 100})
+            self.assertEqual(raised.exception.code, "idempotency_conflict")
+            second = self.manager.submit({**body, "request_id": "8" * 32, "seed": 42})
+            self.assertEqual(second["parameters"]["seed"], 42)
+
+    def test_yingmusic_defaults_and_parameter_validation(self) -> None:
+        requested, effective = yingmusic_parameters({})
+        self.assertEqual(requested, {"diffusion_steps": 100, "inference_cfg_rate": 0.7, "seed": -1})
+        self.assertTrue(0 <= effective["seed"] <= 4294967295)
+        for value in ({"diffusion_steps": True}, {"diffusion_steps": 9}, {"inference_cfg_rate": float("nan")},
+                      {"inference_cfg_rate": 2.1}, {"seed": 4294967296}, {"seed": 1.5}):
+            with self.subTest(value=value), self.assertRaises(ApiError):
+                yingmusic_parameters(value)
+        with self.assertRaises(ApiError):
+            self.manager.submit({"engine": "vevo2", "source_asset_id": "a" * 32,
+                                 "reference_asset_id": "b" * 32, "seed": 42})
 
     def test_active_cancel_terminates_task_and_cleans_partial_output(self) -> None:
         self.worker.block = True

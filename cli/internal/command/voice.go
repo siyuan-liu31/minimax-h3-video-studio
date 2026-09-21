@@ -2,7 +2,9 @@ package command
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"time"
@@ -13,7 +15,7 @@ import (
 
 const VoiceHelp = `Usage: h3ctl voice COMMAND
 
-  convert SOURCE --reference AUDIO --engine vevo2|yingmusic [--detach] [--to PATH]
+  convert SOURCE --reference AUDIO --engine vevo2|yingmusic [--steps 100] [--cfg 0.7] [--seed -1] [--detach] [--to PATH]
   status TASK
   wait TASK [--timeout DURATION] [--poll-interval DURATION]
   cancel TASK
@@ -23,6 +25,7 @@ const VoiceHelp = `Usage: h3ctl voice COMMAND
 
 vevo2 uses the reviewed FM-only style-preserved VC/SVC path.
 yingmusic runs the official separation, singing conversion, and remix pipeline.
+For yingmusic, --seed -1 chooses a new seed on each task; the receipt records the effective seed.
 SOURCE and --reference accept local files, asset:ID, job:ID#INDEX, or media:ID.
 Conversion waits by default; --detach returns after durable queue submission.
 Example: h3ctl voice convert song.wav --reference singer.wav --engine yingmusic --to converted.wav
@@ -43,6 +46,9 @@ func (r *Runner) runVoice(ctx context.Context, args []string) (any, error) {
 		force := set.Bool("force", false, "")
 		timeout := set.Duration("timeout", 0, "")
 		poll := set.Duration("poll-interval", 5*time.Second, "")
+		steps := set.Int("steps", 100, "")
+		cfg := set.Float64("cfg", 0.7, "")
+		seed := set.Int64("seed", -1, "")
 		if err := parseFlags(set, args[1:]); err != nil {
 			return nil, usage("%v", err)
 		}
@@ -52,7 +58,24 @@ func (r *Runner) runVoice(ctx context.Context, args []string) (any, error) {
 		if *timeout < 0 || *poll <= 0 || (*detach && *to != "") {
 			return nil, usage("timeouts must be valid and --detach cannot be combined with --to")
 		}
-		submitted, err := r.Service.SubmitVoice(ctx, *engine, set.Arg(0), *reference, r.Globals.RequestID)
+		tuning := map[string]any{}
+		set.Visit(func(flag *flag.Flag) {
+			switch flag.Name {
+			case "steps":
+				tuning["diffusion_steps"] = *steps
+			case "cfg":
+				tuning["inference_cfg_rate"] = *cfg
+			case "seed":
+				tuning["seed"] = *seed
+			}
+		})
+		if *engine != "yingmusic" && len(tuning) > 0 {
+			return nil, usage("--steps, --cfg and --seed are only supported for yingmusic")
+		}
+		if *engine == "yingmusic" && (*steps < 10 || *steps > 200 || math.IsNaN(*cfg) || math.IsInf(*cfg, 0) || *cfg < 0 || *cfg > 2 || *seed < -1 || *seed > 4294967295) {
+			return nil, usage("yingmusic tuning requires --steps 10..200, --cfg 0..2 and --seed -1 or 0..4294967295")
+		}
+		submitted, err := r.Service.SubmitVoice(ctx, *engine, set.Arg(0), *reference, r.Globals.RequestID, tuning)
 		if err != nil {
 			return nil, err
 		}

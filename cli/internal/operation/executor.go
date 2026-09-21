@@ -165,7 +165,9 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 	case "media.delete":
 		return jsonAction(ctx, s, http.MethodDelete, "/api/derivations/"+url.PathEscape(require("media_id")), nil)
 	case "voice.convert":
-		submitted, err := s.SubmitVoice(ctx, require("engine"), require("source"), require("reference"), stringValue(input["request_id"], ""))
+		tuning := map[string]any{}
+		copyOptional(tuning, input, "diffusion_steps", "inference_cfg_rate", "seed")
+		submitted, err := s.SubmitVoice(ctx, require("engine"), require("source"), require("reference"), stringValue(input["request_id"], ""), tuning)
 		if err != nil {
 			return nil, err
 		}

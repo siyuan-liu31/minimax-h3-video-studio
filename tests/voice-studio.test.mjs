@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   cancelVoiceTask, deleteVoiceTask, getVoiceCapabilities, isSupportedVoiceAudio,
   listVoiceTasks, parseVoiceTask, submitVoiceTask, uploadVoiceAudio, voiceDownloadUrl,
+  validateYingMusicParameters,
 } from "../app/voice-studio-api.ts";
 import { translateUiText } from "../app/ui-language.ts";
 
@@ -39,12 +40,24 @@ test("voice upload advertises only formats recognized by the server signature ga
   for (const name of ["voice.m4a", "voice.aac", "video.mp4", "fake.mp3.exe"]) assert.equal(isSupportedVoiceAudio({ name, type: "audio/mpeg" }), false);
 });
 
+test("YingMusic tuning validates ranges and preserves effective seed receipts", () => {
+  assert.deepEqual(validateYingMusicParameters({ diffusion_steps: 100, inference_cfg_rate: 0.7, seed: -1 }), { diffusion_steps: 100, inference_cfg_rate: 0.7, seed: -1 });
+  for (const parameters of [
+    { diffusion_steps: 9, inference_cfg_rate: 0.7, seed: 1 },
+    { diffusion_steps: 100.5, inference_cfg_rate: 0.7, seed: 1 },
+    { diffusion_steps: 100, inference_cfg_rate: 2.1, seed: 1 },
+    { diffusion_steps: 100, inference_cfg_rate: 0.7, seed: 4294967296 },
+  ]) assert.throws(() => validateYingMusicParameters(parameters));
+  assert.deepEqual(parseVoiceTask({ ...task, parameters: { diffusion_steps: 75, inference_cfg_rate: 0.9, seed: 42 } }).parameters,
+    { diffusion_steps: 75, inference_cfg_rate: 0.9, seed: 42 });
+});
+
 test("voice UI API uploads audio, checks capability, submits and manages durable tasks", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (path, init = {}) => {
     calls.push({ path, init });
-    if (path === "/api/voice/capabilities") return reply({ engines: [{ id: "vevo2", available: false, reason: "missing runtime" }, { id: "yingmusic", available: true, mode: "separate_convert_remix" }] });
+    if (path === "/api/voice/capabilities") return reply({ engines: [{ id: "vevo2", available: false, reason: "missing runtime" }, { id: "yingmusic", available: true, mode: "separate_convert_remix", tuning: { diffusion_steps: { default: 100, minimum: 10, maximum: 200 }, inference_cfg_rate: { default: 0.7, minimum: 0, maximum: 2 }, seed: { default: -1, minimum: -1, maximum: 4294967295 } } }] });
     if (path === "/api/assets") return reply({ asset: { id: sourceId, kind: "audio", filename: "song.mp3", content_url: `/api/assets/${sourceId}/content` } }, 201);
     if (path === "/api/voice/tasks" && init.method === "POST") return reply(task, 202);
     if (path === "/api/voice/tasks") return reply({ items: [task, { ...task, id: "invalid" }] });
@@ -55,14 +68,16 @@ test("voice UI API uploads audio, checks capability, submits and manages durable
   try {
     const capabilities = await getVoiceCapabilities();
     assert.deepEqual(capabilities.map(({ id, available }) => [id, available]), [["vevo2", false], ["yingmusic", true]]);
+    assert.equal(capabilities[1].tuning.diffusion_steps.default, 100);
     const asset = await uploadVoiceAudio(new File(["ID3", new Uint8Array([1, 2, 3])], "song.mp3", { type: "audio/mpeg" }));
     assert.equal(asset.id, sourceId);
     assert.equal(asset.kind, "audio");
     assert.ok(calls.find(({ path, init }) => path === "/api/assets" && init.body instanceof FormData));
-    const submitted = await submitVoiceTask("yingmusic", sourceId, referenceId);
+    const submitted = await submitVoiceTask("yingmusic", sourceId, referenceId, { diffusion_steps: 75, inference_cfg_rate: 0.9, seed: -1 });
     assert.equal(submitted.id, taskId);
     const request = JSON.parse(calls.find(({ path, init }) => path === "/api/voice/tasks" && init.method === "POST").init.body);
     assert.deepEqual([request.engine, request.source_asset_id, request.reference_asset_id], ["yingmusic", sourceId, referenceId]);
+    assert.deepEqual([request.diffusion_steps, request.inference_cfg_rate, request.seed], [75, 0.9, -1]);
     assert.match(request.request_id, /^[0-9a-f]{32}$/);
     assert.equal((await listVoiceTasks()).length, 1);
     assert.equal((await cancelVoiceTask(taskId)).status, "canceled");
@@ -89,7 +104,7 @@ test("voice drawer is wired to upload/drop, persisted task polling, cancellation
   assert.match(drawer, /getVoiceCapabilities\(controller\.signal\)/);
   assert.match(drawer, /listVoiceTasks\(signal\)/);
   assert.match(drawer, /window\.setInterval/);
-  assert.match(drawer, /submitVoiceTask\(engine, sourceId, referenceId\)/);
+  assert.match(drawer, /submitVoiceTask\(engine, sourceId, referenceId, currentParameters\(\)\)/);
   assert.match(drawer, /cancelVoiceTask\(task\.id\)/);
   assert.match(drawer, /deleteVoiceTask\(task\.id\)/);
   assert.match(drawer, /audio controls preload="none" src=\{voiceDownloadUrl\(task\.id\)\}/);

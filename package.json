@@ -13,7 +13,7 @@
     "install:studio": "python3 scripts/h3studio.py install",
     "start:studio": "python3 scripts/h3studio.py start",
     "test:ops": "python3 -m unittest discover -s scripts/ops/tests -v",
-    "test": "npm run lint && npm run typecheck && npm run build && node --test tests/*.test.mjs && python3 -m unittest discover -s server/tests -v && python3 -m unittest discover -s scripts/e2e/tests -v && python3 -m unittest discover -s scripts/long_video/tests -v && npm run test:ops",
+    "test": "npm run lint && npm run typecheck && npm run build && node --experimental-strip-types --test tests/*.test.mjs && python3 -m unittest discover -s server/tests -v && python3 -m unittest discover -s scripts/e2e/tests -v && python3 -m unittest discover -s scripts/long_video/tests -v && npm run test:ops",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },

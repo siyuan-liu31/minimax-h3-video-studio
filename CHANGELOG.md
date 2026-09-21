@@ -17,6 +17,10 @@
 - 长视频项目可选持久化 `h3.character-migration/v1` recipe 和源/角色 SHA-256；尾窗优先向前扩展为更大的合法重叠以减少或消除补帧，再执行终片精确裁切与音频后处理。旧 recipe、普通生成、`video compose`、现有项目和媒体合同保持不变。
 - H3 Ref2VA 参考合同按官方规格更新为图片最多 9、视频最多 3、音频最多 3、混合文件合计最多 12；CLI、Agent operation schema、画布和长视频规划保持一致。旧 Ref2VA profile 身份仍可用于已有项目和断点恢复。
 
+### Fixed
+
+- `npm test` 在项目最低支持的 Node.js 22.13 上显式启用 TypeScript 类型剥离，避免前端测试导入 `.ts` 文件时报未知扩展名。
+
 ## [0.5.0] - 2026-09-04
 
 ### Added

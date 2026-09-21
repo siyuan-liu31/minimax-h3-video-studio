@@ -293,9 +293,10 @@ version, profiles, frame grids, audio policies, and Motion Context status.
 
 ## Voice conversion
 
-The voice commands are CLI/Agent-only in this release. Local inputs are first
-uploaded as audio assets and the server returns a durable task ID. Conversion
-waits by default; use `--detach` to submit without keeping the CLI connected.
+Voice conversion is also available in the Studio sidebar, including browser
+microphone recording for the source. The CLI/Agent commands below upload local
+inputs as audio assets and return a durable task ID. Conversion waits by
+default; use `--detach` to submit without keeping the CLI connected.
 
 ```bash
 # Speech or singing: Amphion Vevo2 FM-only, style-preserved VC/SVC.

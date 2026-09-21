@@ -99,6 +99,7 @@ test("video and image keep independent resolved profiles and parameter state", a
   assert.match(source, /updateGenerator\(targetNodeId/);
   assert.match(source, /const nodeVideoProfile = nodeVideoProfileChoices\.find/);
   assert.match(source, /const nodeImageProfile = nodeRuntime\.profileId === "auto"/);
+  assert.match(source, /<small>\{nodeImageProfile \? `\$\{nodeImageProfile\.id\}@\$\{nodeImageProfile\.version\}`/);
   assert.match(source, /<ParameterPanel kind="video"[\s\S]{0,300}profile=\{nodeVideoProfile\}/);
   assert.match(source, /<ParameterPanel kind="image"[\s\S]{0,300}profile=\{nodeImageProfile\}/);
   assert.match(source, /steps:\s*targetVideo\.steps/);

@@ -333,12 +333,16 @@ func TestVoiceConvertOperationPassesYingMusicTuning(t *testing.T) {
 	}))
 	defer server.Close()
 	runtime := Runtime{Service: &Service{API: api.New(server.URL, time.Second), Context: "test"}}
-	input := decodeObject(t, `{"engine":"yingmusic","source":"asset:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","reference":"asset:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","diffusion_steps":75,"inference_cfg_rate":0.9,"seed":42}`)
+	input := decodeObject(t, `{"engine":"yingmusic","source":"asset:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","reference":"asset:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","diffusion_steps":75,"inference_cfg_rate":0.9,"seed":42,"output_options":{"include_stems":true,"echo":false,"reverb":false}}`)
 	if _, err := Execute(context.Background(), runtime, "voice.convert", input); err != nil {
 		t.Fatal(err)
 	}
 	if payload["diffusion_steps"] != float64(75) || payload["inference_cfg_rate"] != 0.9 || payload["seed"] != float64(42) {
 		t.Fatalf("payload=%v", payload)
+	}
+	options, ok := payload["output_options"].(map[string]any)
+	if !ok || options["include_stems"] != true || options["echo"] != false || options["reverb"] != false {
+		t.Fatalf("output_options=%v", payload["output_options"])
 	}
 }
 

@@ -391,6 +391,7 @@ func TestVoiceConvertRejectsUnsafeOrContradictoryFlagsBeforeNetwork(t *testing.T
 		{"voice", "convert", "asset:" + testAssetID, "--engine", "vevo2"},
 		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "vevo2", "--detach", "--to", "x.wav"},
 		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "vevo2", "--seed", "42"},
+		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "vevo2", "--keep-stems"},
 		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "yingmusic", "--steps", "9"},
 		{"voice", "convert", "asset:" + testAssetID, "--reference", "asset:" + testJobID, "--engine", "yingmusic", "--cfg", "2.1"},
 	} {
@@ -413,12 +414,35 @@ func TestVoiceConvertYingMusicPassesTuning(t *testing.T) {
 	}))
 	defer server.Close()
 	code, out, stderr := executeTest(t, []string{"--server", server.URL, "voice", "convert", "asset:" + testAssetID,
-		"--reference", "asset:" + testJobID, "--engine", "yingmusic", "--steps", "75", "--cfg", "0.9", "--seed", "42", "--detach"}, "")
+		"--reference", "asset:" + testJobID, "--engine", "yingmusic", "--steps", "75", "--cfg", "0.9", "--seed", "42", "--keep-stems", "--echo=false", "--reverb=false", "--detach"}, "")
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d out=%s stderr=%s", code, out, stderr)
 	}
 	if payload["diffusion_steps"] != float64(75) || payload["inference_cfg_rate"] != 0.9 || payload["seed"] != float64(42) {
 		t.Fatalf("payload=%v", payload)
+	}
+	options, ok := payload["output_options"].(map[string]any)
+	if !ok || options["include_stems"] != true || options["echo"] != false || options["reverb"] != false {
+		t.Fatalf("output_options=%v", payload["output_options"])
+	}
+}
+
+func TestVoiceDownloadSelectsRetainedTrack(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "dry.wav")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/voice/tasks/"+testMediaID+"/download" || r.URL.Query().Get("track") != "dry_vocal" {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.String())
+		}
+		_, _ = io.WriteString(w, "RIFFdry")
+	}))
+	defer server.Close()
+	code, _, stderr := executeTest(t, []string{"--server", server.URL, "voice", "download", testMediaID, "--track", "dry_vocal", "--to", destination}, "")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil || string(content) != "RIFFdry" {
+		t.Fatalf("download=%q err=%v", content, err)
 	}
 }
 

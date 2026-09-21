@@ -8,9 +8,9 @@ import type { LibraryAsset } from "./studio-library";
 import MicrophoneRecorder from "./microphone-recorder";
 import {
   cancelVoiceTask, deleteVoiceTask, getVoiceCapabilities, isSupportedVoiceAudio,
-  listVoiceTasks, submitVoiceTask, uploadVoiceAudio, voiceDownloadUrl,
-  validateYingMusicParameters, YINGMUSIC_DEFAULTS,
-  type VoiceCapability, type VoiceEngine, type VoiceTask, type YingMusicParameters,
+  listVoiceTasks, submitVoiceTask, uploadVoiceAudio, voiceDownloadUrl, voicePreviewUrl,
+  validateYingMusicParameters, YINGMUSIC_DEFAULTS, YINGMUSIC_OUTPUT_DEFAULTS,
+  type VoiceCapability, type VoiceEngine, type VoiceTask, type VoiceTrack, type YingMusicParameters,
 } from "./voice-studio-api";
 
 type Slot = "source" | "reference";
@@ -30,6 +30,7 @@ const QUEUE_REASONS: Record<string, string> = {
   waiting_for_model_release: "等待驻留模型释放",
   waiting_for_gpu: "等待 GPU",
 };
+const TRACK_LABELS: Record<VoiceTrack, string> = { mix: "最终混音", dry_vocal: "换声干声", accompaniment: "原伴奏" };
 
 function taskLabel(assetId: string, assets: LibraryAsset[]): string {
   return assets.find((asset) => asset.id === assetId)?.filename ?? assetId.slice(0, 8);
@@ -72,6 +73,21 @@ function AudioSlot({ slot, label, selectedId, assets, uploading, onSelect, onFil
   </section>;
 }
 
+function VoiceTaskResult({ task }: { task: VoiceTask }) {
+  const [track, setTrack] = useState<VoiceTrack>("mix");
+  const available = (["mix", "dry_vocal", "accompaniment"] as VoiceTrack[]).filter((item) => item === "mix" ? Boolean(task.outputs?.mix ?? task.output) : Boolean(task.outputs?.[item]));
+  if (available.length === 0) return null;
+  const selected = available.includes(track) ? track : "mix";
+  return <div className="voice-task-result">
+    {available.length > 1 && <label className="voice-track-select">试听与导出音轨<select aria-label="试听与导出音轨" value={selected} onChange={(event) => setTrack(event.target.value as VoiceTrack)}>
+      {available.map((item) => <option key={item} value={item}>{TRACK_LABELS[item]}</option>)}
+    </select></label>}
+    <audio key={`${task.id}:${selected}`} controls preload="none" src={voicePreviewUrl(task.id, selected)} aria-label={`${TRACK_LABELS[selected]}试听`}/>
+    <a href={voiceDownloadUrl(task.id, selected)} download={`voice-${task.id.slice(0, 8)}-${selected}.wav`}>导出{TRACK_LABELS[selected]} WAV</a>
+    <small>试听与导出使用同一份音轨文件。</small>
+  </div>;
+}
+
 export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) {
   const audioAssets = useMemo(() => assets.filter((asset) => asset.kind === "audio"), [assets]);
   const [engine, setEngine] = useState<VoiceEngine>("vevo2");
@@ -89,6 +105,9 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   const [steps, setSteps] = useState(String(YINGMUSIC_DEFAULTS.diffusion_steps));
   const [cfg, setCfg] = useState(String(YINGMUSIC_DEFAULTS.inference_cfg_rate));
   const [seed, setSeed] = useState(String(YINGMUSIC_DEFAULTS.seed));
+  const [includeStems, setIncludeStems] = useState(YINGMUSIC_OUTPUT_DEFAULTS.include_stems);
+  const [echoEnabled, setEchoEnabled] = useState(YINGMUSIC_OUTPUT_DEFAULTS.echo);
+  const [reverbEnabled, setReverbEnabled] = useState(YINGMUSIC_OUTPUT_DEFAULTS.reverb);
   const uploadControllerRef = useRef<AbortController | null>(null);
   const refreshRequestRef = useRef(0);
 
@@ -158,7 +177,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
     if (!canSubmit) return;
     setSubmitting(true); setError("");
     try {
-      const task = await submitVoiceTask(engine, sourceId, referenceId, currentParameters());
+      const task = await submitVoiceTask(engine, sourceId, referenceId, currentParameters(), engine === "yingmusic" && selectedCapability?.outputOptions ? { include_stems: includeStems, echo: echoEnabled, reverb: reverbEnabled } : undefined);
       refreshRequestRef.current += 1;
       setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
       setTasksState("ready");
@@ -207,6 +226,13 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
         </div>
         <small>官方流程推荐 100 步作为质量与速度折中，并非所有歌曲的最优值。-1 表示每次随机；任务中会记录实际种子。改用记录的种子可复现抽卡条件，GPU 运行仍可能有微小差异。</small>
       </section>}
+      {engine === "yingmusic" && selectedCapability?.outputOptions && <section className="voice-tuning" aria-label="歌曲输出与效果">
+        <strong>输出与效果</strong>
+        <label className="voice-effect-option"><input type="checkbox" checked={includeStems} onChange={(event) => setIncludeStems(event.target.checked)}/>保留换声干声与原伴奏，供试听和导出</label>
+        <label className="voice-effect-option"><input type="checkbox" checked={echoEnabled} onChange={(event) => setEchoEnabled(event.target.checked)}/>最终混音加入回声</label>
+        <label className="voice-effect-option"><input type="checkbox" checked={reverbEnabled} onChange={(event) => setReverbEnabled(event.target.checked)}/>最终混音加入混响</label>
+        <small>效果开关只作用于最终混音；干声与伴奏保持原样。旧任务仍可试听和下载原有成品。</small>
+      </section>}
       <p className="voice-format-note">支持 WAV、FLAC、OGG、MP3；服务端会校验真实格式。结果输出 WAV。</p>
       {error && <div className="voice-error" role="alert">{error}</div>}
       <button className="voice-submit" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting ? "提交中…" : "开始换声"}</button>
@@ -218,10 +244,11 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
           <div className="voice-task-top"><strong>{ENGINE_LABELS[task.engine]}</strong><span>{STATUS_LABELS[task.status]}</span></div>
           <small title={task.id}>{taskLabel(task.sourceAssetId, audioAssets)} → {taskLabel(task.referenceAssetId, audioAssets)}</small>
           {task.parameters && <small className="voice-task-parameters">{task.parameters.diffusion_steps} <span>步</span> · <span>引导</span> {task.parameters.inference_cfg_rate} · <span>种子</span> {task.parameters.seed} <button type="button" onClick={() => { setEngine("yingmusic"); setSteps(String(task.parameters?.diffusion_steps)); setCfg(String(task.parameters?.inference_cfg_rate)); setSeed(String(task.parameters?.seed)); }}>复用参数</button></small>}
+          {task.outputOptions && <small className="voice-task-parameters">{task.outputOptions.include_stems ? "保留分轨" : "仅最终混音"} · 回声{task.outputOptions.echo ? "开" : "关"} · 混响{task.outputOptions.reverb ? "开" : "关"}</small>}
           <div className="voice-task-progress"><progress max="100" value={task.progress} aria-label="换声进度"/><span>{Math.round(task.progress)}%</span></div>
           <p><span>{STAGE_LABELS[task.stage] ?? task.stage}</span>{task.status === "queued" && typeof task.queuePosition === "number" && <> · <span>{`队列第 ${task.queuePosition} 位`}</span></>}{task.queueReason && <> · <span>{QUEUE_REASONS[task.queueReason] ?? task.queueReason}</span></>}</p>
           {task.error && <p className="voice-task-error">{task.error}</p>}
-          {task.status === "completed" && <div className="voice-task-result"><audio controls preload="none" src={voiceDownloadUrl(task.id)} aria-label="换声结果试听"/><a href={voiceDownloadUrl(task.id)} download={`voice-${task.id.slice(0, 8)}.wav`}>下载 WAV</a></div>}
+          {task.status === "completed" && <VoiceTaskResult task={task}/>}
           <div className="voice-task-actions">{["queued", "running", "cancelling"].includes(task.status) ? <button type="button" disabled={Boolean(actionId) || task.status === "cancelling"} onClick={() => void act(task, "cancel")}>取消任务</button> : <button type="button" disabled={Boolean(actionId)} onClick={() => void act(task, "delete")}>删除记录</button>}</div>
         </article>)}
       </section>

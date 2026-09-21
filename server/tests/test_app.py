@@ -256,6 +256,8 @@ class ApiIntegrationTests(unittest.TestCase):
         task_id = "e" * 32
         output = self.config.data_root / "voice-test.wav"
         output.write_bytes(b"RIFFvoice")
+        dry_output = self.config.data_root / "voice-dry.wav"
+        dry_output.write_bytes(b"RIFFdry")
 
         class FakeVoice:
             @staticmethod
@@ -279,7 +281,11 @@ class ApiIntegrationTests(unittest.TestCase):
                 return {"engines": [{"id": "vevo2", "available": True}]}
 
             @staticmethod
-            def output_path(_task_id):
+            def output_path(_task_id, track="mix"):
+                if track == "dry_vocal":
+                    return dry_output
+                if track != "mix":
+                    raise ApiError(404, "voice_track_missing", "voice output track was not retained")
                 return output
 
             @staticmethod
@@ -309,6 +315,20 @@ class ApiIntegrationTests(unittest.TestCase):
         self.assertEqual((status, json.loads(body)["status"]), (202, "canceled"))
         status, _, body = self.request("GET", f"/api/voice/tasks/{task_id}/download", headers=auth)
         self.assertEqual((status, body), (200, b"RIFFvoice"))
+        status, preview_headers, preview = self.request("GET", f"/api/voice/tasks/{task_id}/preview?track=mix", headers=auth)
+        self.assertEqual((status, preview), (200, body))
+        self.assertIn("inline", preview_headers["Content-Disposition"])
+        status, download_headers, downloaded = self.request("GET", f"/api/voice/tasks/{task_id}/download?track=mix", headers=auth)
+        self.assertEqual((status, downloaded), (200, preview))
+        self.assertIn("attachment", download_headers["Content-Disposition"])
+        status, _, dry_preview = self.request("GET", f"/api/voice/tasks/{task_id}/preview?track=dry_vocal", headers=auth)
+        self.assertEqual((status, dry_preview), (200, b"RIFFdry"))
+        status, _, dry_download = self.request("GET", f"/api/voice/tasks/{task_id}/download?track=dry_vocal", headers=auth)
+        self.assertEqual((status, dry_download), (200, dry_preview))
+        status, _, _ = self.request("GET", f"/api/voice/tasks/{task_id}/preview?track=accompaniment", headers=auth)
+        self.assertEqual(status, 404)
+        status, _, _ = self.request("GET", f"/api/voice/tasks/{task_id}/download?track=../dry", headers=auth)
+        self.assertEqual(status, 404)
 
     def test_director_workflow_presets_are_authenticated_safe_and_downloadable(self) -> None:
         status, _, _ = self.request("GET", "/api/workflows/director")

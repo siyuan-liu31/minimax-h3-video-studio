@@ -166,7 +166,7 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 		return jsonAction(ctx, s, http.MethodDelete, "/api/derivations/"+url.PathEscape(require("media_id")), nil)
 	case "voice.convert":
 		tuning := map[string]any{}
-		copyOptional(tuning, input, "diffusion_steps", "inference_cfg_rate", "seed")
+		copyOptional(tuning, input, "diffusion_steps", "inference_cfg_rate", "seed", "output_options")
 		submitted, err := s.SubmitVoice(ctx, require("engine"), require("source"), require("reference"), stringValue(input["request_id"], ""), tuning)
 		if err != nil {
 			return nil, err
@@ -182,7 +182,7 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 		}
 		result["completed"] = completed
 		if destination := stringValue(input["download"], ""); destination != "" {
-			downloaded, err := s.API.Download(ctx, "/api/voice/tasks/"+url.PathEscape(taskID)+"/download", destination, boolValue(input["force"]))
+			downloaded, err := s.API.Download(ctx, voiceDownloadRoute(taskID, stringValue(input["download_track"], "mix")), destination, boolValue(input["force"]))
 			if err != nil {
 				return nil, err
 			}
@@ -198,7 +198,7 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 	case "voice.delete":
 		return jsonAction(ctx, s, http.MethodDelete, "/api/voice/tasks/"+url.PathEscape(require("task_id")), nil)
 	case "voice.download":
-		return s.API.Download(ctx, "/api/voice/tasks/"+url.PathEscape(require("task_id"))+"/download", require("to"), boolValue(input["force"]))
+		return s.API.Download(ctx, voiceDownloadRoute(require("task_id"), stringValue(input["track"], "mix")), require("to"), boolValue(input["force"]))
 	case "gpu.status":
 		return s.API.Get(ctx, "/api/resources/gpus")
 	case "project.create":
@@ -452,6 +452,14 @@ func copyOptional(destination, source map[string]any, keys ...string) {
 			destination[key] = value
 		}
 	}
+}
+
+func voiceDownloadRoute(taskID, track string) string {
+	path := "/api/voice/tasks/" + url.PathEscape(taskID) + "/download"
+	if track != "mix" {
+		path += "?track=" + url.QueryEscape(track)
+	}
+	return path
 }
 
 func boolValue(value any) bool {

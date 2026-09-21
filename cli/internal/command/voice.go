@@ -15,17 +15,19 @@ import (
 
 const VoiceHelp = `Usage: h3ctl voice COMMAND
 
-  convert SOURCE --reference AUDIO --engine vevo2|yingmusic [--steps 100] [--cfg 0.7] [--seed -1] [--detach] [--to PATH]
+  convert SOURCE --reference AUDIO --engine vevo2|yingmusic [--steps 100] [--cfg 0.7] [--seed -1] [--keep-stems] [--echo=false] [--reverb=false] [--detach] [--to PATH]
   status TASK
   wait TASK [--timeout DURATION] [--poll-interval DURATION]
   cancel TASK
   delete TASK
-  download TASK --to PATH [--force]
+  download TASK --to PATH [--track mix|dry_vocal|accompaniment] [--force]
   capabilities
 
 vevo2 uses the reviewed FM-only style-preserved VC/SVC path.
 yingmusic runs the official separation, singing conversion, and remix pipeline.
 For yingmusic, --seed -1 chooses a new seed on each task; the receipt records the effective seed.
+--keep-stems retains dry converted vocals and accompaniment for separate download.
+--to on convert downloads the final mix; use voice download --track for retained stems.
 SOURCE and --reference accept local files, asset:ID, job:ID#INDEX, or media:ID.
 Conversion waits by default; --detach returns after durable queue submission.
 Example: h3ctl voice convert song.wav --reference singer.wav --engine yingmusic --to converted.wav
@@ -49,6 +51,9 @@ func (r *Runner) runVoice(ctx context.Context, args []string) (any, error) {
 		steps := set.Int("steps", 100, "")
 		cfg := set.Float64("cfg", 0.7, "")
 		seed := set.Int64("seed", -1, "")
+		keepStems := set.Bool("keep-stems", false, "")
+		echo := set.Bool("echo", true, "")
+		reverb := set.Bool("reverb", true, "")
 		if err := parseFlags(set, args[1:]); err != nil {
 			return nil, usage("%v", err)
 		}
@@ -59,6 +64,7 @@ func (r *Runner) runVoice(ctx context.Context, args []string) (any, error) {
 			return nil, usage("timeouts must be valid and --detach cannot be combined with --to")
 		}
 		tuning := map[string]any{}
+		outputOptionsSpecified := false
 		set.Visit(func(flag *flag.Flag) {
 			switch flag.Name {
 			case "steps":
@@ -67,13 +73,18 @@ func (r *Runner) runVoice(ctx context.Context, args []string) (any, error) {
 				tuning["inference_cfg_rate"] = *cfg
 			case "seed":
 				tuning["seed"] = *seed
+			case "keep-stems", "echo", "reverb":
+				outputOptionsSpecified = true
 			}
 		})
-		if *engine != "yingmusic" && len(tuning) > 0 {
-			return nil, usage("--steps, --cfg and --seed are only supported for yingmusic")
+		if *engine != "yingmusic" && (len(tuning) > 0 || outputOptionsSpecified) {
+			return nil, usage("--steps, --cfg, --seed, --keep-stems, --echo and --reverb are only supported for yingmusic")
 		}
 		if *engine == "yingmusic" && (*steps < 10 || *steps > 200 || math.IsNaN(*cfg) || math.IsInf(*cfg, 0) || *cfg < 0 || *cfg > 2 || *seed < -1 || *seed > 4294967295) {
 			return nil, usage("yingmusic tuning requires --steps 10..200, --cfg 0..2 and --seed -1 or 0..4294967295")
+		}
+		if outputOptionsSpecified {
+			tuning["output_options"] = map[string]any{"include_stems": *keepStems, "echo": *echo, "reverb": *reverb}
 		}
 		submitted, err := r.Service.SubmitVoice(ctx, *engine, set.Arg(0), *reference, r.Globals.RequestID, tuning)
 		if err != nil {
@@ -143,15 +154,16 @@ func (r *Runner) runVoice(ctx context.Context, args []string) (any, error) {
 	case "download":
 		set := newFlags("voice download")
 		to := set.String("to", "", "")
+		track := set.String("track", "mix", "")
 		force := set.Bool("force", false, "")
-		if err := parseFlags(set, args[1:]); err != nil || set.NArg() != 1 || *to == "" {
-			return nil, usage("voice download requires TASK --to PATH")
+		if err := parseFlags(set, args[1:]); err != nil || set.NArg() != 1 || *to == "" || !validVoiceTrack(*track) {
+			return nil, usage("voice download requires TASK --to PATH and --track mix|dry_vocal|accompaniment")
 		}
 		id, err := voiceTaskID(set.Arg(0))
 		if err != nil {
 			return nil, err
 		}
-		return r.Service.API.Download(ctx, "/api/voice/tasks/"+url.PathEscape(id)+"/download", *to, *force)
+		return r.Service.API.Download(ctx, voiceDownloadPath(id, *track), *to, *force)
 	case "capabilities":
 		if len(args) != 1 {
 			return nil, usage("voice capabilities does not accept arguments")
@@ -167,4 +179,16 @@ func voiceTaskID(raw string) (string, error) {
 		return "", usage("voice task id must be 32 lowercase hex characters")
 	}
 	return raw, nil
+}
+
+func validVoiceTrack(track string) bool {
+	return track == "mix" || track == "dry_vocal" || track == "accompaniment"
+}
+
+func voiceDownloadPath(taskID, track string) string {
+	path := "/api/voice/tasks/" + url.PathEscape(taskID) + "/download"
+	if track != "mix" {
+		path += "?track=" + url.QueryEscape(track)
+	}
+	return path
 }

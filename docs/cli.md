@@ -310,6 +310,11 @@ h3ctl voice convert ./song.wav \
 h3ctl voice status TASK_ID --json
 h3ctl voice wait TASK_ID --timeout 2h --output jsonl
 h3ctl voice download TASK_ID --to ./converted-song.wav
+# Optional diagnostic tracks and effect switches for a new YingMusic task:
+h3ctl voice convert ./song.wav --reference asset:REFERENCE_ID --engine yingmusic \
+  --keep-stems --echo=false --reverb=false --detach
+h3ctl voice download TASK_ID --track dry_vocal --to ./dry-vocal.wav
+h3ctl voice download TASK_ID --track accompaniment --to ./accompaniment.wav
 ```
 
 Voice inputs pass content-signature and ffprobe validation. The currently
@@ -326,6 +331,15 @@ seed for another draw with the same settings. The upstream 100-step setting is
 a quality/speed balance, not a universal best result. GPU inference may not
 be bit-for-bit deterministic. `voice.convert` accepts the API field names
 `diffusion_steps`, `inference_cfg_rate`, and `seed` for YingMusic only.
+`--keep-stems` retains the dry converted vocal and separated accompaniment;
+without it only the final mix is saved. `--echo=false` and `--reverb=false`
+disable those effects on the final mix without altering the dry vocal or
+accompaniment. Both effects remain enabled by default for compatibility.
+`voice download --track` accepts `mix` (default), `dry_vocal`, or
+`accompaniment`; the same persistent WAV bytes back the browser preview and
+the CLI download. Agent `voice.convert` accepts `output_options` with boolean
+`include_stems`, `echo`, and `reverb`, and `voice.download` accepts `track`.
+Existing tasks still expose their original final mix only.
 
 `voice cancel`, `voice delete`, `voice capabilities`, and the Agent operations
 `voice.convert|get|wait|cancel|delete|download` are also available. A local Ctrl-C

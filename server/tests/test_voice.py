@@ -61,6 +61,9 @@ class FakeWorker:
         if cancel.is_set():
             raise ApiError(409, "voice_canceled", "canceled")
         Path(request["output"]).write_bytes(b"RIFFconverted")
+        if request.get("output_options", {}).get("include_stems"):
+            Path(request["output"]).with_name("dry-vocal.wav").write_bytes(b"RIFFdry")
+            Path(request["output"]).with_name("accompaniment.wav").write_bytes(b"RIFFaccompaniment")
         return {"ok": True}
 
     def stop(self):
@@ -155,6 +158,45 @@ class VoiceTaskTests(unittest.TestCase):
         with self.assertRaises(ApiError):
             self.manager.submit({"engine": "vevo2", "source_asset_id": "a" * 32,
                                  "reference_asset_id": "b" * 32, "seed": 42})
+
+    def test_yingmusic_optional_tracks_and_effects_are_durable_and_idempotent(self) -> None:
+        body = {"engine": "yingmusic", "source_asset_id": "a" * 32, "reference_asset_id": "b" * 32,
+                "request_id": "7" * 32, "output_options": {"include_stems": True, "echo": False, "reverb": False}}
+        with patch("server.voice.voice_capability", return_value={"available": True}):
+            submitted = self.manager.submit(body)
+            finished = self.wait_terminal(submitted["id"])
+            self.assertEqual(finished["status"], "completed")
+            self.assertEqual(self.worker.requests[0]["output_options"], body["output_options"])
+            self.assertEqual(set(finished["outputs"]), {"mix", "dry_vocal", "accompaniment"})
+            self.assertEqual(self.manager.output_path(submitted["id"], "dry_vocal").read_bytes(), b"RIFFdry")
+            self.assertEqual(self.manager.output_path(submitted["id"], "accompaniment").read_bytes(), b"RIFFaccompaniment")
+            self.assertEqual(self.manager.get(submitted["id"])["outputs"], finished["outputs"])
+            self.assertTrue(self.manager.submit(body)["idempotent_replay"])
+            with self.assertRaises(ApiError) as conflict:
+                self.manager.submit({**body, "output_options": {**body["output_options"], "echo": True}})
+            self.assertEqual(conflict.exception.code, "idempotency_conflict")
+            self.assertEqual(self.manager.output_path(submitted["id"]).read_bytes(), b"RIFFconverted")
+            with self.assertRaises(ApiError) as invalid_track:
+                self.manager.output_path(submitted["id"], "../dry_vocal")
+            self.assertEqual(invalid_track.exception.code, "voice_track_invalid")
+            self.manager.delete(submitted["id"])
+            self.assertFalse((self.config.data_root / "voice-results" / submitted["id"]).exists())
+
+    def test_yingmusic_output_options_validation_and_default_compatibility(self) -> None:
+        body = {"engine": "yingmusic", "source_asset_id": "a" * 32, "reference_asset_id": "b" * 32}
+        with patch("server.voice.voice_capability", return_value={"available": True}):
+            for options in (None, [], {"echo": 1}, {"unknown": True}, {"include_stems": "yes"}):
+                with self.subTest(options=options), self.assertRaises(ApiError):
+                    self.manager.submit({**body, "output_options": options})
+            completed = self.wait_terminal(self.manager.submit(body)["id"])
+            self.assertEqual(completed["output_options"], {"include_stems": False, "echo": True, "reverb": True})
+            self.assertEqual(set(completed["outputs"]), {"mix"})
+            with self.assertRaises(ApiError) as missing:
+                self.manager.output_path(completed["id"], "dry_vocal")
+            self.assertEqual(missing.exception.code, "voice_track_missing")
+        with self.assertRaises(ApiError):
+            self.manager.submit({"engine": "vevo2", "source_asset_id": "a" * 32,
+                                 "reference_asset_id": "b" * 32, "output_options": {}})
 
     def test_active_cancel_terminates_task_and_cleans_partial_output(self) -> None:
         self.worker.block = True

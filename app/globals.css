@@ -233,6 +233,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .voice-tuning-fields label { display: grid; gap: 5px; color: #aeb7ca; font-size: 10px; }
 .voice-tuning-fields input { width: 100%; min-width: 0; min-height: 33px; padding: 5px 6px; border: 1px solid #3b4354; border-radius: 6px; background: #0b0f17; color: #e8e7f4; font-size: 11px; }
 .voice-tuning small { color: #8994a9; font-size: 9px; line-height: 1.5; }
+.voice-effect-option { display: flex; align-items: center; gap: 7px; color: #c7cfdd; font-size: 10px; line-height: 1.45; cursor: pointer; }
+.voice-effect-option input { accent-color: #8174ff; }
 .voice-task-parameters { white-space: normal !important; }
 .voice-task-parameters button { padding: 2px 5px; border: 1px solid #514c82; border-radius: 5px; background: #292547; color: #ded9ff; font-size: 9px; cursor: pointer; }
 .voice-microphone-error { margin: 0; color: #f3acb8; font-size: 10px; line-height: 1.4; }
@@ -244,6 +246,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .voice-task > small { overflow: hidden; color: #a4aec0; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.voice-task > p { margin: 0; color: #8996aa; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
 .voice-task-progress { display: flex; align-items: center; gap: 8px; color: #a9a1ee; font-size: 9px; }.voice-task-progress progress { flex: 1; height: 5px; accent-color: #8174ff; }
 .voice-task-result { display: grid; gap: 7px; }.voice-task-result audio { width: 100%; height: 34px; }.voice-task-result a { justify-self: start; display: inline-flex; align-items: center; }
+.voice-task-result small { color: #8994a9; font-size: 9px; }
+.voice-track-select { display: grid; gap: 5px; color: #aeb7ca; font-size: 10px; }
+.voice-track-select select { min-height: 32px; padding: 4px 7px; border: 1px solid #3b4354; border-radius: 6px; background: #0b0f17; color: #e8e7f4; font-size: 10px; }
 .voice-task-actions { display: flex; justify-content: flex-end; }.voice-task-actions button { border-color: #584550; background: #2d202a; color: #eeb7c3; }
 .library-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 7px; padding: 12px 12px 0; }
 .library-actions button { min-height: 34px; border: 1px solid #343b4a; border-radius: 7px; background: #171c26; color: #c8ceda; cursor: pointer; font-size: 9px; }

@@ -27,6 +27,8 @@ ENGINES = {"vevo2", "yingmusic"}
 YINGMUSIC_DEFAULT_STEPS = 100
 YINGMUSIC_DEFAULT_CFG = 0.7
 YINGMUSIC_MAX_SEED = 2**32 - 1
+YINGMUSIC_OUTPUT_DEFAULTS = {"include_stems": False, "echo": True, "reverb": True}
+YINGMUSIC_TRACK_FILES = {"mix": "converted.wav", "dry_vocal": "dry-vocal.wav", "accompaniment": "accompaniment.wav"}
 
 
 def yingmusic_parameters(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -43,6 +45,15 @@ def yingmusic_parameters(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     requested = {"diffusion_steps": steps, "inference_cfg_rate": float(cfg), "seed": seed}
     effective = {**requested, "seed": secrets.randbelow(YINGMUSIC_MAX_SEED + 1) if seed == -1 else seed}
     return requested, effective
+
+
+def yingmusic_output_options(value: Any) -> dict[str, bool]:
+    if not isinstance(value, dict) or set(value) - set(YINGMUSIC_OUTPUT_DEFAULTS):
+        raise ApiError(400, "invalid_parameter", "output_options must contain only include_stems, echo and reverb")
+    options = {**YINGMUSIC_OUTPUT_DEFAULTS, **value}
+    if any(type(option) is not bool for option in options.values()):
+        raise ApiError(400, "invalid_parameter", "output_options values must be booleans")
+    return options
 
 
 class ProcessVoiceWorker:
@@ -223,7 +234,7 @@ class VoiceTaskManager:
 
     def submit(self, data: dict[str, Any]) -> dict[str, Any]:
         tuning = {"diffusion_steps", "inference_cfg_rate", "seed"}
-        allowed = {"engine", "source_asset_id", "reference_asset_id", "request_id"} | tuning
+        allowed = {"engine", "source_asset_id", "reference_asset_id", "request_id", "output_options"} | tuning
         if set(data) - allowed:
             raise ApiError(400, "invalid_parameter", "voice conversion contains unsupported fields")
         engine = str(data.get("engine", ""))
@@ -231,7 +242,10 @@ class VoiceTaskManager:
             raise ApiError(400, "invalid_engine", "engine must be vevo2 or yingmusic")
         if engine != "yingmusic" and set(data) & tuning:
             raise ApiError(400, "invalid_parameter", "tuning is supported only for yingmusic")
+        if engine != "yingmusic" and "output_options" in data:
+            raise ApiError(400, "invalid_parameter", "output_options are supported only for yingmusic")
         requested, parameters = yingmusic_parameters(data) if engine == "yingmusic" else ({}, {})
+        output_options = yingmusic_output_options(data["output_options"]) if "output_options" in data else dict(YINGMUSIC_OUTPUT_DEFAULTS)
         source_id = validate_id(str(data.get("source_asset_id", "")), "source asset id")
         reference_id = validate_id(str(data.get("reference_asset_id", "")), "reference asset id")
         source, reference = self.assets.get(source_id), self.assets.get(reference_id)
@@ -247,6 +261,8 @@ class VoiceTaskManager:
         digest_value = {"engine": engine, "source_asset_id": source_id, "reference_asset_id": reference_id}
         if engine == "yingmusic" and set(data) & tuning:
             digest_value["parameters"] = requested
+        if "output_options" in data:
+            digest_value["output_options"] = output_options
         digest = hashlib.sha256(json.dumps(digest_value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         with self._lock:
             duplicate = next((task for task in self.store.list() if task.get("request_id") == request_id), None)
@@ -268,6 +284,7 @@ class VoiceTaskManager:
             }
             if engine == "yingmusic":
                 task["parameters"] = parameters
+                task["output_options"] = output_options
             self.store.put(task_id, task)
 
             def run(cancel: threading.Event, update) -> dict[str, Any]:
@@ -295,21 +312,32 @@ class VoiceTaskManager:
             }
             if task["engine"] == "yingmusic":
                 worker_request["parameters"] = task["parameters"]
+                worker_request["output_options"] = task.get("output_options", YINGMUSIC_OUTPUT_DEFAULTS)
             result = self.worker.run(str(task["engine"]), worker_request, cancel)
             if cancel.is_set():
                 raise ApiError(409, "voice_canceled", "voice conversion was canceled")
             if not output.is_file() or output.stat().st_size <= 0:
                 raise ApiError(502, "voice_output_missing", "voice worker produced no output")
-            if output.stat().st_size > self.config.max_audio_bytes:
-                raise ApiError(507, "voice_output_too_large", "voice output exceeds the configured audio size limit")
-            sha256 = self.assets.hash_file(output)
+            tracks = {"mix": output}
+            if task["engine"] == "yingmusic" and task.get("output_options", {}).get("include_stems"):
+                tracks.update({key: output_dir / name for key, name in YINGMUSIC_TRACK_FILES.items() if key != "mix"})
+            for track_path in tracks.values():
+                if not track_path.is_file() or track_path.stat().st_size <= 0:
+                    raise ApiError(502, "voice_output_missing", "voice worker produced an incomplete audio track")
+                if track_path.stat().st_size > self.config.max_audio_bytes:
+                    raise ApiError(507, "voice_output_too_large", "voice output exceeds the configured audio size limit")
+            outputs = {
+                track: {
+                    "filename": track_path.name, "mime_type": "audio/wav",
+                    "size": track_path.stat().st_size, "sha256": self.assets.hash_file(track_path),
+                    "preview_url": f"/api/voice/tasks/{task_id}/preview?track={track}",
+                    "download_url": f"/api/voice/tasks/{task_id}/download?track={track}",
+                } for track, track_path in tracks.items()
+            }
+            legacy_output = {**outputs["mix"], "download_url": f"/api/voice/tasks/{task_id}/download"}
             completed = self._update(
                 task_id, status="completed", stage="completed", progress=100,
-                output={
-                    "filename": "converted.wav", "mime_type": "audio/wav",
-                    "size": output.stat().st_size, "sha256": sha256,
-                    "download_url": f"/api/voice/tasks/{task_id}/download",
-                },
+                output=legacy_output, outputs=outputs,
             )
             update("completed", 1.0)
             return {"task_id": task_id, "output": completed["output"], "worker": result}
@@ -360,11 +388,16 @@ class VoiceTaskManager:
             status = "canceled" if current.get("status") == "queued" else "cancelling"
             return self.public(self._update(task_id, status=status, stage=status))
 
-    def output_path(self, task_id: str) -> Path:
-        task = self.store.get(validate_id(task_id, "voice task id"))
+    def output_path(self, task_id: str, track: str = "mix") -> Path:
+        task_id = validate_id(task_id, "voice task id")
+        if track not in YINGMUSIC_TRACK_FILES:
+            raise ApiError(400, "voice_track_invalid", "unknown voice output track")
+        task = self.store.get(task_id)
         if task.get("status") != "completed" or not isinstance(task.get("output"), dict):
             raise ApiError(409, "voice_not_completed", "voice task has no completed output")
-        path = self.output_root / task_id / "converted.wav"
+        if track != "mix" and (not isinstance(task.get("outputs"), dict) or track not in task["outputs"]):
+            raise ApiError(404, "voice_track_missing", "voice output track was not retained")
+        path = self.output_root / task_id / YINGMUSIC_TRACK_FILES[track]
         if not path.is_file():
             raise ApiError(404, "voice_output_missing", "voice output no longer exists")
         return path
@@ -382,7 +415,7 @@ class VoiceTaskManager:
     def public(self, task: dict[str, Any]) -> dict[str, Any]:
         value = {key: task[key] for key in (
             "id", "task_id", "engine", "source_asset_id", "reference_asset_id",
-            "status", "stage", "progress", "created_at", "updated_at", "output", "error", "parameters",
+            "status", "stage", "progress", "created_at", "updated_at", "output", "outputs", "output_options", "error", "parameters",
         ) if key in task}
         resource_id = task.get("resource_task_id")
         if isinstance(resource_id, str) and task.get("status") == "queued":
@@ -409,6 +442,7 @@ class VoiceTaskManager:
                     "inference_cfg_rate": {"default": YINGMUSIC_DEFAULT_CFG, "minimum": 0, "maximum": 2},
                     "seed": {"default": -1, "minimum": -1, "maximum": YINGMUSIC_MAX_SEED},
                 }
+                capability["output_options"] = dict(YINGMUSIC_OUTPUT_DEFAULTS)
             engines.append({key: value for key, value in capability.items() if key not in {"root", "python"}})
         return {"engines": engines, "worker": self.worker.status()}
 

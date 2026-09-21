@@ -347,7 +347,15 @@ class YingMusicEngine:
             with contextlib.redirect_stdout(sys.stderr):
                 converted = Path(self.run_inference(self.svc_args, self.svc_bundle, device=self.device))
                 mixed = work_root / "mixed.wav"
-                echo_then_reverb_save(str(converted), str(mixed), str(accompany))
+                output_options = request.get("output_options") or {}
+                echo_then_reverb_save(
+                    str(converted), str(mixed), str(accompany),
+                    echo_kwargs={"wet": 0.18 if output_options.get("echo", True) else 0.0},
+                    reverb_kwargs={"wet": 0.25 if output_options.get("reverb", True) else 0.0},
+                )
+            if output_options.get("include_stems", False):
+                shutil.copy2(converted, output.parent / "dry-vocal.wav")
+                shutil.copy2(accompany, output.parent / "accompaniment.wav")
             shutil.copy2(mixed, output)
         return output
 

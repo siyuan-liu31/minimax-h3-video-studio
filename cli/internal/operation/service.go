@@ -202,7 +202,7 @@ func (s *Service) SubmitVoice(ctx context.Context, engine, source, reference, re
 	if len(tuning) == 1 {
 		for key, value := range tuning[0] {
 			switch key {
-			case "diffusion_steps", "inference_cfg_rate", "seed":
+			case "diffusion_steps", "inference_cfg_rate", "seed", "output_options":
 				body[key] = value
 			default:
 				return nil, contract.NewError("invalid_argument", "unsupported voice tuning parameter")

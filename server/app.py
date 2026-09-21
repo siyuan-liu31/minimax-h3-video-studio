@@ -1947,10 +1947,16 @@ class Handler(BaseHTTPRequestHandler):
             if len(segments) == 4 and segments[:3] == ["api", "voice", "tasks"]:
                 self._json(HTTPStatus.OK, self.runtime.voice.get(segments[3]))
                 return
-            if len(segments) == 5 and segments[:3] == ["api", "voice", "tasks"] and segments[4] == "download":
+            if len(segments) == 5 and segments[:3] == ["api", "voice", "tasks"] and segments[4] in {"preview", "download"}:
+                track_values = query.get("track", ["mix"])
+                if len(track_values) != 1:
+                    raise ApiError(400, "voice_track_invalid", "provide one voice output track")
+                track = track_values[0]
+                download = segments[4] == "download"
+                track_path = self.runtime.voice.output_path(segments[3], track)
                 self._send_file(
-                    self.runtime.voice.output_path(segments[3]), download=True,
-                    original_name=f"{segments[3]}-converted.wav",
+                    track_path, download=download,
+                    original_name=f"{segments[3]}-{track_path.name}",
                     cache_control="private, no-cache",
                 )
                 return

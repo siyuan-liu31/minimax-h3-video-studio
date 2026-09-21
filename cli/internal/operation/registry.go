@@ -228,14 +228,16 @@ func buildDefinitions() map[string]Definition {
 		"diffusion_steps":    map[string]any{"type": "integer", "minimum": 10, "maximum": 200},
 		"inference_cfg_rate": map[string]any{"type": "number", "minimum": 0, "maximum": 2},
 		"seed":               map[string]any{"type": "integer", "minimum": -1, "maximum": 4294967295},
-		"request_id":         idRule, "wait": boolRule, "timeout_seconds": numberRule(0),
-		"poll_seconds": numberRule(0), "download": map[string]any{"type": "string"}, "force": boolRule,
+		"output_options": map[string]any{"type": "object", "additionalProperties": false,
+			"properties": map[string]any{"include_stems": boolRule, "echo": boolRule, "reverb": boolRule}},
+		"request_id": idRule, "wait": boolRule, "timeout_seconds": numberRule(0),
+		"poll_seconds": numberRule(0), "download": map[string]any{"type": "string"}, "download_track": enum("mix", "dry_vocal", "accompaniment"), "force": boolRule,
 	})
 	add("voice.get", []string{"task_id"}, map[string]any{"task_id": idRule})
 	add("voice.wait", []string{"task_id"}, map[string]any{"task_id": idRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0)})
 	add("voice.cancel", []string{"task_id"}, map[string]any{"task_id": idRule})
 	add("voice.delete", []string{"task_id"}, map[string]any{"task_id": idRule})
-	add("voice.download", []string{"task_id", "to"}, map[string]any{"task_id": idRule, "to": stringRule, "force": boolRule})
+	add("voice.download", []string{"task_id", "to"}, map[string]any{"task_id": idRule, "to": stringRule, "track": enum("mix", "dry_vocal", "accompaniment"), "force": boolRule})
 	add("gpu.status", nil, map[string]any{})
 	projectID := map[string]any{"project_id": idRule}
 	add("project.create", []string{"spec"}, map[string]any{"spec": map[string]any{"type": "object"}})

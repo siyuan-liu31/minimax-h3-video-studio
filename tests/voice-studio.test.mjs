@@ -111,4 +111,6 @@ test("voice drawer is wired to upload/drop, persisted task polling, cancellation
   assert.match(drawer, /download=\{`voice-/);
   assert.equal(translateUiText("换声", "en"), "Voice Conversion");
   assert.equal(translateUiText("开始换声", "en"), "Convert Voice");
+  assert.equal(translateUiText("种子", "en"), "Seed");
+  assert.match(drawer, /<span>种子<\/span>/);
 });

@@ -24,7 +24,7 @@ MiniMax H3 Video Studio は、動画・画像・音声変換を扱うセルフ�
 
 > MiniMax H3 Video Studio は独立したコミュニティプロジェクトであり、MiniMax または ComfyUI との提携・公認関係はありません。
 
-> 以下の画面では、ユーザーが公開を許可したデモ素材を使用しています。元の素材、モデルの重み、生成動画ファイルはリポジトリに含まれません。
+> 従来の画面は公開を許可されたデモ素材を使用しています。Qwen-Image 2.1 と音声変換の画面は、ユーザー素材を含まないクリーンなデモ環境です。元の素材、モデルの重み、生成ファイルはリポジトリに含まれません。
 
 <p align="center">
   <img src="docs/assets/readme/canvas-workflow.png" width="100%" alt="画像参照、H3 動画ノード、出力ノードで構成された MiniMax H3 Video Studio のノードキャンバス">
@@ -83,6 +83,10 @@ H3 動画は 16:9、9:16、24 FPS に対応します。長さは実際の `17k+5
   <img src="docs/assets/readme/image-models.png" width="760" alt="Image Generation ノードの画像モデル選択画面">
 </p>
 
+<p align="center">
+  <img src="docs/assets/readme/qwen-image-21-panel.png" width="610" alt="Qwen-Image 2.1 BF16 と順序付き参照画像入力">
+</p>
+
 | モデル／ワークフロー | 対応方式 | 適した用途 |
 | --- | --- | --- |
 | Z-Image Turbo BF16 / INT8 | テキスト画像生成、実験的な単一画像 latent img2img | 高速な写実表現と中国語／英語テキスト。BF16 は標準の高画質設定 |
@@ -97,7 +101,13 @@ H3 動画は 16:9、9:16、24 FPS に対応します。長さは実際の `17k+5
 
 ### 音声変換と楽曲カバー
 
+<p align="center">
+  <img src="docs/assets/readme/voice-studio-yingmusic.png" width="485" alt="YingMusic の音声変換画面。アップロード、録音、ステップ、シード、分離トラック、エコー、リバーブを設定できる">
+</p>
+
 音声画面はドラッグ＆ドロップ、既存アセット、マイク録音に対応し、録音を元音声または参照音声に指定できます。Vevo2 FM-only は参照音色への変換、YingMusic-SVC はボーカル分離・変換・伴奏リミックスを実行します。後者はステップ数、ガイダンス、乱数シードを調整でき、完成ミックス・変換後のドライボーカル・伴奏を個別に試聴／書き出しできます。エコーとリバーブは別々に切り替えられ、動画・画像タスクと GPU の排他キューを共有します。Agent は `h3ctl voice convert` と `h3ctl voice download` から同じ機能を使用できます。
+
+RTX 5090 で BF16 重みを使用した実測例では、Qwen-Image 2.1 の 2048 × 2048・40 ステップ生成が約 75 秒、指示編集が約 120 秒で完了しました。同じ検証用ゲートウェイから CLI の生成と編集も完了しています。完了済み YingMusic タスクでは、ミックス・ドライボーカル・伴奏それぞれの試聴とダウンロードがバイト単位で一致しました。速度は保証値ではなく、生成メディアやユーザー音声はリポジトリに含めません。
 
 ### 長尺動画：分割生成と継続
 

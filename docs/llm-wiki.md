@@ -14,7 +14,7 @@ Browser :3013
     ├─ 页面 -> Vinext :3014
     └─ /api/* -> Python API :6020
                        └─ GPU Resource Manager (single-card FIFO lease)
-                          ├─ ComfyUI :6006
+                          ├─ ComfyUI :6009（本次 Qwen-Image 2.1 部署目标；旧 :6006 在切换前保持运行）
                           └─ Vevo2 / YingMusic persistent worker
 ```
 
@@ -474,7 +474,7 @@ npm test
 - Python API：6020
 - Vinext 内部服务：3014
 - 对浏览器的同源 gateway：3013
-- ComfyUI：6006
+- ComfyUI：切换后使用独立升级的 0.37 服务 `:6009`，复用原模型/input/output 持久目录；旧 `:6006` 保留到切换和回归验收结束，不要在发布前停止。
 - Vevo2/YingMusic：由 Python API 按需启动的子进程，无监听端口
 
 安全发布顺序：

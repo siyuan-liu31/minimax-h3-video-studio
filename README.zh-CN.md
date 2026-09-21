@@ -24,7 +24,7 @@ MiniMax H3 Video Studio 是自托管的视频、图片和换声创作工作台�
 
 > MiniMax H3 Video Studio 是独立社区项目，与 MiniMax 和 ComfyUI 没有隶属或官方背书关系。
 
-> 以下界面截图使用经用户授权公开的演示素材，仅用于说明功能；仓库不包含对应的原始素材、模型权重或生成视频文件。
+> 既有界面截图使用经用户授权公开的演示素材；Qwen-Image 2.1 与换声面板截图来自不含用户素材的干净演示工作区。仓库不包含原始素材、模型权重或生成视频文件。
 
 <p align="center">
   <img src="docs/assets/readme/canvas-workflow.png" width="100%" alt="MiniMax H3 Video Studio 节点画布示例：参考图、H3 视频节点和输出节点组成生成工作流">
@@ -83,6 +83,10 @@ H3 视频支持 16:9、9:16 和 24 FPS，时长使用真实的 `17k+5` 帧网格
   <img src="docs/assets/readme/image-models.png" width="760" alt="Image Generation 节点的图片模型选择器示例">
 </p>
 
+<p align="center">
+  <img src="docs/assets/readme/qwen-image-21-panel.png" width="610" alt="Qwen-Image 2.1 BF16 图片节点及有序参考图输入">
+</p>
+
 | 模型 / 工作流 | 支持方式 | 适合场景 |
 | --- | --- | --- |
 | Z-Image Turbo BF16 / INT8 | 文生图、实验性单图 latent img2img | 快速写实、中英文字；BF16 为默认高画质档 |
@@ -97,7 +101,11 @@ H3 视频支持 16:9、9:16 和 24 FPS，时长使用真实的 `17k+5` 帧网格
 
 ### 音频换声与歌曲翻唱
 
-换声工作区支持拖拽上传、复用现有音频资产以及浏览器话筒录音；录音可明确指定为原音频或参考音频。Vevo2 FM-only 按参考音频替换说话或演唱音色。YingMusic-SVC 执行人声分离、转换和伴奏重混完整流程，支持调整步数、引导强度与随机种子以多次尝试。最终混音、换声干声、伴奏可分别试听和导出；回声、混响可独立开关，试听与下载使用同一持久结果。音频、图片和视频任务共用 GPU 独占队列。
+<p align="center">
+  <img src="docs/assets/readme/voice-studio-yingmusic.png" width="485" alt="YingMusic 换声工作区：上传、录音、步数与随机种子、分轨、回声及混响选项">
+</p>
+
+换声工作区支持拖拽上传、复用现有音频资产以及浏览器话筒录音；录音可明确指定为原音频或参考音频。Vevo2 FM-only 按参考音频替换说话或演唱音色。YingMusic-SVC 执行人声分离、转换和伴奏重混完整流程，支持调整步数、引导强度与随机种子以多次尝试。提交任务前选择是否保留分轨、是否加入回声和混响；完成后，最终混音、换声干声、伴奏可分别试听和导出。完成后要改变效果需新建任务。试听与下载使用同一持久结果。音频、图片和视频任务共用 GPU 独占队列。
 
 ```bash
 h3ctl voice convert ./speech.wav --reference ./voice-reference.wav --engine vevo2
@@ -108,6 +116,8 @@ h3ctl generate image --profile qwen-image-2.1-bf16 \
   --prompt '蓝色陶瓷茶壶，产品摄影' --width 2048 --height 2048 --steps 40 --cfg 1 \
   --wait --download ./teapot.png
 ```
+
+RTX 5090 实测：完整 BF16 权重下，2048 × 2048、40 步的 Qwen-Image 2.1 文生图约 75 秒、指令图生图约 120 秒；同一预发布网关也已跑通 CLI 文生图和图生图。一个已完成的 YingMusic 任务中，最终混音、干声、伴奏各自的试听与下载 WAV 字节一致。以上是实际用例而非性能保证；生成媒体和用户音频不进入仓库。
 
 ### 长视频：分段生成与续接
 

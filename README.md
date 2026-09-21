@@ -31,7 +31,7 @@ MiniMax H3 Video Studio is a self-hosted creation workspace for video, images, a
 
 > MiniMax H3 Video Studio is an independent community project. It is not affiliated with or endorsed by MiniMax or ComfyUI.
 
-> The screenshots below use demo media approved by the user for public display. The repository does not include the original media, model weights, or generated video files.
+> Earlier screenshots use demo media approved by the user for public display; the Qwen-Image 2.1 and voice-panel screenshots use a clean demo workspace with no user media. The repository does not include original media, model weights, or generated video files.
 
 <p align="center">
   <img src="docs/assets/readme/canvas-workflow.png" width="100%" alt="MiniMax H3 Video Studio node canvas with an image reference, an H3 video node, and an output node">
@@ -103,6 +103,10 @@ H3 video supports 16:9, 9:16, and 24 FPS. Duration follows the actual `17k+5` fr
   <img src="docs/assets/readme/image-models.png" width="760" alt="Image model selector in an Image Generation node">
 </p>
 
+<p align="center">
+  <img src="docs/assets/readme/qwen-image-21-panel.png" width="610" alt="Qwen-Image 2.1 BF16 selected in the image node with an ordered reference-image input">
+</p>
+
 | Model / workflow | Supported operation | Best suited for |
 | --- | --- | --- |
 | Z-Image Turbo BF16 / INT8 | Text to image; experimental single-image latent img2img | Fast photorealism and Chinese/English text; BF16 is the default high-quality option |
@@ -117,7 +121,11 @@ Image generation supports 1K/2K and 16:9, 9:16, 3:4, and 1:1. Qwen-Image 2.1 use
 
 ### Voice conversion and song covers
 
-The Voice workspace accepts drag-and-drop uploads, existing audio assets, or a browser microphone recording. Recordings can be assigned explicitly as either the source or the voice reference. Vevo2 FM-only changes a speech/voice recording toward the reference timbre. YingMusic-SVC performs the full song workflow—vocal separation, timbre conversion, and accompaniment remix—with adjustable steps, guidance, and seed for repeatable variants. Its final mix, converted dry vocal, and accompaniment can be previewed and exported individually; echo and reverb can be switched independently. The preview and downloaded track use the same persisted result. Jobs share one GPU lease queue with video and image generation and remain cancellable and recoverable.
+<p align="center">
+  <img src="docs/assets/readme/voice-studio-yingmusic.png" width="485" alt="YingMusic voice workspace with source and reference upload, microphone recording, step and seed controls, and separate stems, echo, and reverb options">
+</p>
+
+The Voice workspace accepts drag-and-drop uploads, existing audio assets, or a browser microphone recording. Recordings can be assigned explicitly as either the source or the voice reference. Vevo2 FM-only changes a speech/voice recording toward the reference timbre. YingMusic-SVC performs the full song workflow—vocal separation, timbre conversion, and accompaniment remix—with adjustable steps, guidance, and seed for repeatable variants. Select stem retention, echo, and reverb before submitting the task. Its final mix, converted dry vocal, and accompaniment can then be previewed and exported individually; changing effects after completion requires a new task. The preview and downloaded track use the same persisted result. Jobs share one GPU lease queue with video and image generation and remain cancellable and recoverable.
 
 ```bash
 h3ctl voice convert ./speech.wav --reference ./voice-reference.wav --engine vevo2
@@ -126,6 +134,8 @@ h3ctl voice convert ./song.wav --reference ./voice-reference.wav --engine yingmu
 h3ctl voice download TASK_ID --track mix --to ./cover.wav
 h3ctl voice download TASK_ID --track dry_vocal --to ./dry-vocal.wav
 ```
+
+Verified on an RTX 5090 with full BF16 weights: a 2048 × 2048, 40-step Qwen-Image 2.1 text-to-image run completed in 75 seconds, and a 2048 × 2048, 40-step instruction edit completed in 120 seconds. The same staged backend also completed CLI text-to-image and image-to-image jobs through its public gateway. For voice, an existing completed YingMusic task returned byte-identical WAV content from the preview and download endpoints for all three tracks. These are measured example runs, not performance guarantees; generated media and user audio remain outside the repository.
 
 ### Long video: segmented generation and continuation
 

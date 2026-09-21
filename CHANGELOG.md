@@ -6,6 +6,7 @@
 
 ### Added
 
+- 换声工作区新增浏览器话筒录音：用户可录制、试听并明确选择上传为原音频，自动转换为现有服务端接受的 WAV；支持取消、权限错误提示和关闭面板时安全释放话筒。
 - Studio 左侧新增换声工作区：Vevo2 FM-only 与 YingMusic-SVC 模式选择、原音频/参考音频拖拽或文件选择上传、现有音频资产复用、可用性提示、持久任务进度/排队/取消/删除，以及完成 WAV 的试听和下载；英文界面同步支持。
 - 新增 Agent 友好的 `h3ctl video migrate-character`：支持本地与远端 locator、实用上不限时长的 24 FPS 源视频分窗、Base/Turbo 可配步数、Motion Context 音画连续、精确裁帧拼接、四种音频策略、断点恢复和存储预检。
 - 新增版本化 `video.character_migration` 能力与严格 Draft 2020-12 Agent operations `video.character_migration.plan`、`video.character_migration.produce`、`media.mux_audio`；服务端新增通用原子音频置换接口。

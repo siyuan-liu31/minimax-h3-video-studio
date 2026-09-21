@@ -197,7 +197,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .rail-drawer-header > button { width: 30px; height: 30px; border: 1px solid #303746; border-radius: 7px; background: #171c26; color: #a7afbe; cursor: pointer; font-size: 18px; }
 .voice-drawer { width: min(420px, calc(100vw - 62px)); }
 .voice-drawer-content { display: grid; align-content: start; gap: 13px; padding: 15px 14px 22px; }
-.voice-engine-picker, .voice-slot, .voice-task { min-width: 0; padding: 12px; border: 1px solid #2d3442; border-radius: 10px; background: #151a24; }
+.voice-engine-picker, .voice-slot, .voice-task, .voice-microphone { min-width: 0; padding: 12px; border: 1px solid #2d3442; border-radius: 10px; background: #151a24; }
 .voice-engine-picker { display: grid; gap: 8px; }
 .voice-engine-picker label, .voice-existing-label > span { color: #9aa3b7; font-size: 11px; font-weight: 650; }
 .voice-engine-picker select, .voice-existing-label select { width: 100%; min-height: 36px; padding: 0 9px; border: 1px solid #3b4354; border-radius: 7px; background: #0b0f17; color: #e8e7f4; font-size: 11px; }
@@ -214,6 +214,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .voice-drop-zone button:disabled, .voice-submit:disabled, .voice-task-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .voice-existing-label { display: grid; gap: 5px; }.voice-selected-meta { justify-self: end; }
 .voice-input-preview { width: 100%; height: 32px; }
+.voice-microphone { display: grid; gap: 9px; }
+.voice-microphone-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 8px; }
+.voice-microphone-heading strong { color: #eeeef7; font-size: 11px; }
+.voice-microphone-heading small, .voice-microphone > small { color: #8994a9; font-size: 9px; line-height: 1.5; }
+.voice-microphone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.voice-microphone-actions span { color: #c8c3e7; font-size: 10px; }
+.voice-microphone-actions [role="status"] { color: #f0a2aa; }
+.voice-microphone button { min-height: 29px; padding: 5px 9px; border: 1px solid #514c82; border-radius: 6px; background: #292547; color: #ded9ff; font-size: 10px; cursor: pointer; }
+.voice-microphone button:disabled { opacity: .5; cursor: not-allowed; }
+.voice-microphone audio { width: 100%; height: 34px; }
+.voice-microphone-error { margin: 0; color: #f3acb8; font-size: 10px; line-height: 1.4; }
 .voice-error, .voice-task-error { padding: 8px; border: 1px solid #6a3844; border-radius: 6px; background: #2b1920; color: #f3acb8; font-size: 10px; line-height: 1.4; }
 .voice-submit { min-height: 39px; border: 1px solid #8175e9; border-radius: 8px; background: #675bd6; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; }
 .voice-history { display: grid; gap: 10px; padding-top: 6px; border-top: 1px solid #2c3240; }.voice-history-heading { display: flex; align-items: center; justify-content: space-between; }.voice-history-heading strong { font-size: 12px; }

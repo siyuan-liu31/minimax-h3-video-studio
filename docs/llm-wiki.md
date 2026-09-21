@@ -1,6 +1,6 @@
 # MiniMax H3 Video Studio LLM Wiki
 
-> 最后校准：2026-09-18（Asia/Shanghai，本地源码与测试；本次未连接开发机）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
+> 最后校准：2026-09-21（Asia/Shanghai，本地源码与测试；已核对开发机 `current` 布局及换声运行时）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
 
 ## 1. 先看这里
 
@@ -36,7 +36,7 @@ Browser :3013
 | H3 Base latent 断点续采 | `server/checkpoints.py`, `server/workflows.py`, `server/profiles.py` | `server/tests/test_checkpoints.py`, `tests/studio-history.test.mjs` |
 | 长视频模型与 UI | `app/video-project.ts`, `app/video-timeline.tsx`, `app/video-director-*.tsx` | `tests/video-timeline*.test.mjs`, `tests/video-director-model.test.mjs` |
 | 长视频执行、续接、合并 | `server/video_projects.py` | `server/tests/test_video_projects.py` |
-| 音色转换、换声前端与 Worker | `app/voice-studio.tsx`, `app/voice-studio-api.ts`, `server/voice.py`, `server/voice_worker.py` | `tests/voice-studio.test.mjs`, `server/tests/test_voice.py` |
+| 音色转换、话筒录音与换声 Worker | `app/voice-studio.tsx`, `app/microphone-recorder.tsx`, `app/microphone-audio.ts`, `app/voice-studio-api.ts`, `server/voice.py`, `server/voice_worker.py` | `tests/microphone-audio.test.mjs`, `tests/voice-studio.test.mjs`, `server/tests/test_voice.py` |
 | GPU 独占租约、驻留模型和队列 | `server/gpu_resources.py`, `server/comfy_tasks.py` | `server/tests/test_gpu_resources.py`, `server/tests/test_comfy_tasks.py` |
 | 启动、网关、远端运维 | `scripts/h3studio.py`, `scripts/start.mjs`, `scripts/gateway.mjs` | `scripts/ops/tests/test_h3studio.py`, `tests/gateway.test.mjs` |
 | 本地抖音解析、下载与 Swagger API | `cli/internal/douyin/`, `cli/internal/command/douyin.go` | `cli/internal/douyin/*_test.go`, `cli/internal/command/command_test.go` |
@@ -49,6 +49,8 @@ app/
   studio.tsx                   主画布与大部分用户交互（当前最大前端文件）
   voice-studio.tsx             侧栏换声工作区、音频拖入/选择/试听、任务状态
   voice-studio-api.ts          换声前端 API 合同、回执解析和上传格式预检
+  microphone-recorder.tsx      浏览器话筒录音、预览、显式上传与权限/生命周期清理
+  microphone-audio.ts          浏览器录音解码并封装为服务端接受的 PCM16 WAV
   studio-document.ts           CanvasDocument V7、迁移、Profile 解析
   studio-graph.ts              类型化连线、依赖计划、Prompt 标签编号
   studio-workspace.ts          多画布标签和 localStorage 原子提交
@@ -184,6 +186,8 @@ Studio 首次访问默认英文，用户可在顶栏切换 English / 中文；�
 ### 3.5 换声工作区
 
 左侧「换声」入口挂载独立的 `VoiceStudio` 抽屉，不新增 CanvasDocument V7 节点或本地任务副本。原音频和参考音频各有单文件拖拽/选择区，也可选服务端资产库的既有音频；上传经 `POST /api/assets`，成功后立即合入共用资产状态。前端预检扩展名 WAV、FLAC、OGG、MP3，服务端仍检查文件签名；M4A/AAC 当前不在可上传范围。两个输入和完成结果的播放器使用 `preload="none"`，避免打开面板就下载音频。
+
+原音频还可用浏览器话筒录制：只在用户点「开始录音」后请求权限，最长 5 分钟；停止后先在浏览器本地解码并编码为保持设备采样率的 PCM16 单声道 WAV，供用户试听。只有用户再点「使用这段录音」才通过现有 `POST /api/assets` 上传并选为原音频，录音不会自动提交换声任务。取消、丢弃、关闭抽屉及异常路径停止媒体轨道并释放本地预览 URL；上传失败保留本地试听以便重试。浏览器话筒要求安全上下文（HTTPS 或 localhost）及 `getUserMedia`、`MediaRecorder`、`AudioContext` 支持。这是录后转换，不是实时监听变声；无 GPU 时只能测试录音/WAV/UI/API 链路，不能验证模型音质。
 
 引擎选项是 Vevo2 FM-only（语音/清唱）和 YingMusic-SVC（歌曲人声分离、转换、重混）。提交前读取 `GET /api/voice/capabilities`，仅在所选引擎 `available`、两个资产有效且没有上传/提交动作时启用按钮；不能通过前端绕开服务端能力检查。`POST /api/voice/tasks` 带随机 `request_id`，任务历史从服务端 `GET /api/voice/tasks` 恢复；活跃任务每 2.5 秒刷新一次，显示进度、GPU 队列位置与等待原因。取消和删除调用各自的服务端 API；删除仅在终态显示，并会删除输出。完成结果从受控下载端点试听/下载 WAV。没有配置外部运行时或 GPU 的本地环境只能验证 UI/API 合同，不能据此声称推理已通过。
 

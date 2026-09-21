@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import type { LibraryAsset } from "./studio-library";
+import MicrophoneRecorder from "./microphone-recorder";
 import {
   cancelVoiceTask, deleteVoiceTask, getVoiceCapabilities, isSupportedVoiceAudio,
   listVoiceTasks, submitVoiceTask, uploadVoiceAudio, voiceDownloadUrl,
@@ -80,6 +81,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   const [tasks, setTasks] = useState<VoiceTask[]>([]);
   const [tasksState, setTasksState] = useState<"loading" | "ready" | "error">("loading");
   const [uploading, setUploading] = useState<Slot | null>(null);
+  const [microphonePending, setMicrophonePending] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [actionId, setActionId] = useState("");
   const [error, setError] = useState("");
@@ -119,11 +121,11 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   }, [refreshTasks, tasks]);
 
   const selectedCapability = capabilities.find((item) => item.id === engine);
-  const canSubmit = capabilityState === "ready" && selectedCapability?.available === true && audioAssets.some((asset) => asset.id === sourceId) && audioAssets.some((asset) => asset.id === referenceId) && !uploading && !submitting;
+  const canSubmit = capabilityState === "ready" && selectedCapability?.available === true && audioAssets.some((asset) => asset.id === sourceId) && audioAssets.some((asset) => asset.id === referenceId) && !uploading && !microphonePending && !submitting;
 
-  async function upload(slot: Slot, file: File) {
-    if (uploading) return;
-    if (!isSupportedVoiceAudio(file)) { setError("只接受 WAV、FLAC、OGG 或 MP3 音频文件"); return; }
+  async function upload(slot: Slot, file: File): Promise<boolean> {
+    if (uploading) return false;
+    if (!isSupportedVoiceAudio(file)) { setError("只接受 WAV、FLAC、OGG 或 MP3 音频文件"); return false; }
     const controller = new AbortController();
     uploadControllerRef.current = controller;
     setError(""); setUploading(slot);
@@ -131,8 +133,10 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
       const asset = await uploadVoiceAudio(file, controller.signal);
       onAssetCreated(asset);
       if (slot === "source") setSourceId(asset.id); else setReferenceId(asset.id);
+      return true;
     } catch (failure) {
       if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "音频上传失败");
+      return false;
     } finally {
       if (uploadControllerRef.current === controller) uploadControllerRef.current = null;
       setUploading(null);
@@ -179,7 +183,8 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
       </select><p>{engine === "vevo2" ? "给一段说话或清唱，换成参考音频的音色。" : "分离歌曲人声、换成参考音色，再与原伴奏重混。"}</p>
       {capabilityState === "loading" ? <small>正在检查模型可用性…</small> : capabilityState === "error" ? <small className="voice-unavailable">无法读取模型能力，暂不能提交。</small> : selectedCapability?.available ? <small className="voice-available">模型已就绪</small> : <small className="voice-unavailable">模型未就绪：{selectedCapability?.reason ?? "服务端未提供该引擎"}</small>}
       </div>
-      <AudioSlot slot="source" label="原音频" selectedId={sourceId} assets={audioAssets} uploading={uploading !== null} onSelect={setSourceId} onFile={(file) => void upload("source", file)} onError={setError}/>
+      <AudioSlot slot="source" label="原音频" selectedId={sourceId} assets={audioAssets} uploading={uploading !== null || microphonePending} onSelect={setSourceId} onFile={(file) => void upload("source", file)} onError={setError}/>
+      <MicrophoneRecorder disabled={uploading !== null || submitting} onPendingChange={setMicrophonePending} onRecorded={(file) => upload("source", file)}/>
       <AudioSlot slot="reference" label="参考音频" selectedId={referenceId} assets={audioAssets} uploading={uploading !== null} onSelect={setReferenceId} onFile={(file) => void upload("reference", file)} onError={setError}/>
       <p className="voice-format-note">支持 WAV、FLAC、OGG、MP3；服务端会校验真实格式。结果输出 WAV。</p>
       {error && <div className="voice-error" role="alert">{error}</div>}

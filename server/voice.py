@@ -32,6 +32,9 @@ class ProcessVoiceWorker:
         self._process: subprocess.Popen[str] | None = None
         self._engine: str | None = None
         self._stderr = None
+        # Capability reads must not wait for a model load or conversion that
+        # holds the worker's run lock for minutes.
+        self._status: tuple[subprocess.Popen[str] | None, str | None] = (None, None)
 
     def run(self, engine: str, request: dict[str, Any], cancel: threading.Event) -> dict[str, Any]:
         with self._lock:
@@ -120,6 +123,7 @@ class ProcessVoiceWorker:
             selector.close()
         self._process = process
         self._engine = engine
+        self._status = (process, engine)
         return process
 
     @staticmethod
@@ -148,6 +152,7 @@ class ProcessVoiceWorker:
             self._process = None
             self._engine = None
             self._stderr = None
+            self._status = (None, None)
             if process is not None:
                 self._terminate(process)
                 if process.stdin is not None:
@@ -158,11 +163,9 @@ class ProcessVoiceWorker:
                 stderr.close()
 
     def status(self) -> dict[str, Any]:
-        with self._lock:
-            return {
-                "running": self._process is not None and self._process.poll() is None,
-                "engine": self._engine,
-            }
+        process, engine = self._status
+        running = process is not None and process.poll() is None
+        return {"running": running, "engine": engine if running else None}
 
 
 class VoiceTaskManager:

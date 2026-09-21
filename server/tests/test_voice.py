@@ -200,6 +200,30 @@ class VoiceTaskTests(unittest.TestCase):
         self.assertFalse(unavailable["available"])
         self.assertIn("repository", unavailable["missing"])
 
+    def test_worker_status_does_not_wait_for_model_load_or_conversion(self) -> None:
+        worker = ProcessVoiceWorker(self.config)
+        locked = threading.Event()
+        release = threading.Event()
+        returned = threading.Event()
+
+        def hold_worker_lock() -> None:
+            with worker._lock:
+                locked.set()
+                release.wait(2)
+
+        holder = threading.Thread(target=hold_worker_lock)
+        reader = threading.Thread(target=lambda: (worker.status(), returned.set()))
+        holder.start()
+        try:
+            self.assertTrue(locked.wait(1))
+            reader.start()
+            self.assertTrue(returned.wait(0.2), "capability reads must not wait for GPU inference")
+        finally:
+            release.set()
+            holder.join(2)
+            if reader.ident is not None:
+                reader.join(2)
+
     def test_public_capability_redacts_machine_paths(self) -> None:
         capability = self.manager.capabilities()["engines"][0]
         self.assertNotIn("root", capability)

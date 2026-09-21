@@ -191,6 +191,8 @@ Studio 首次访问默认英文，用户可在顶栏切换 English / 中文；�
 
 引擎选项是 Vevo2 FM-only（语音/清唱）和 YingMusic-SVC（歌曲人声分离、转换、重混）。提交前读取 `GET /api/voice/capabilities`，仅在所选引擎 `available`、两个资产有效且没有上传/提交动作时启用按钮；不能通过前端绕开服务端能力检查。`POST /api/voice/tasks` 带随机 `request_id`，任务历史从服务端 `GET /api/voice/tasks` 恢复；活跃任务每 2.5 秒刷新一次，显示进度、GPU 队列位置与等待原因。取消和删除调用各自的服务端 API；删除仅在终态显示，并会删除输出。完成结果从受控下载端点试听/下载 WAV。没有配置外部运行时或 GPU 的本地环境只能验证 UI/API 合同，不能据此声称推理已通过。
 
+`ProcessVoiceWorker.status()` 读取原子发布的驻留状态快照，不获取覆盖模型加载/推理全程的 Worker 运行锁；因此换声任务进行时，能力查询和前端面板不会被长推理阻塞。
+
 ## 4. 视频模式与 Prompt
 
 ### 4.1 Director 模式

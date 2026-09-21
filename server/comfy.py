@@ -236,7 +236,10 @@ class ComfyClient:
     @staticmethod
     def _choices(info: dict[str, Any], node: str, input_name: str) -> set[str]:
         try:
-            definition = info[node]["input"]["required"][input_name]
+            inputs = info[node]["input"]
+            definition = inputs.get("required", {}).get(input_name)
+            if definition is None:
+                definition = inputs.get("optional", {})[input_name]
             first = definition[0]
         except (KeyError, IndexError, TypeError):
             return set()
@@ -303,7 +306,7 @@ class ComfyClient:
                 missing_options.append(f"BasicScheduler.scheduler={scheduler}")
         elif profile.compiler in {
             "z_image_t2i", "z_image_img2img", "z_image_lora_t2i", "z_image_lora_img2img",
-            "qwen_image_t2i", "qwen_image_edit",
+            "qwen_image_t2i", "qwen_image_edit", "qwen_image_21",
         }:
             sampler = "res_multistep" if profile.compiler in {
                 "z_image_t2i", "z_image_img2img", "z_image_lora_t2i", "z_image_lora_img2img",
@@ -313,6 +316,28 @@ class ComfyClient:
                 missing_options.append(f"KSampler.sampler_name={sampler}")
             if scheduler not in self._choices(info, "KSampler", "scheduler"):
                 missing_options.append(f"KSampler.scheduler={scheduler}")
+            if profile.compiler == "qwen_image_21":
+                if "qwen_image" not in self._choices(info, "CLIPLoader", "type"):
+                    missing_options.append("CLIPLoader.type=qwen_image")
+                for node, field, value in (
+                    ("UNETLoader", "weight_dtype", "default"),
+                    ("CLIPLoader", "device", "default"),
+                    ("QwenImage21Cache", "device", "auto"),
+                    ("QwenImage21Cache", "dtype", "default"),
+                ):
+                    if value not in self._choices(info, node, field):
+                        missing_options.append(f"{node}.{field}={value}")
+                required_inputs = {
+                    "TextEncodeQwenImage21": {"clip", "prompt", "negative_prompt", "vae", "resolution", "images"},
+                    "QwenImage21Cache": {"model", "device", "dtype"},
+                    "EmptyLatentImage": {"width", "height", "batch_size"},
+                    "ImageScaleToTotalPixels": {"image", "upscale_method", "megapixels", "resolution_steps"},
+                }
+                for node, expected_inputs in required_inputs.items():
+                    if node in info:
+                        absent = sorted(expected_inputs - self._input_names(info, node))
+                        if absent:
+                            missing_options.append(f"{node}.inputs={','.join(absent)}")
             if profile.compiler in {
                 "z_image_img2img", "z_image_lora_t2i", "z_image_lora_img2img",
             }:

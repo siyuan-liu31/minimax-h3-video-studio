@@ -143,8 +143,8 @@ func buildDefinitions() map[string]Definition {
 		"lora_strength": map[string]any{"type": "number", "minimum": float64(0), "maximum": float64(2)},
 	}
 	imageParameters := cloneProperties(commonParameters)
-	imageParameters["width"] = map[string]any{"type": "integer", "minimum": float64(256), "maximum": float64(2048), "multipleOf": float64(8)}
-	imageParameters["height"] = map[string]any{"type": "integer", "minimum": float64(256), "maximum": float64(2048), "multipleOf": float64(8)}
+	imageParameters["width"] = map[string]any{"type": "integer", "minimum": float64(256), "maximum": float64(3072), "multipleOf": float64(8)}
+	imageParameters["height"] = map[string]any{"type": "integer", "minimum": float64(256), "maximum": float64(3072), "multipleOf": float64(8)}
 	imageParameters["cfg"] = map[string]any{"type": "number", "minimum": float64(1), "maximum": float64(30)}
 	imageParameters["negative_prompt"] = map[string]any{"type": "string"}
 	videoParameters := cloneProperties(commonParameters)
@@ -159,7 +159,7 @@ func buildDefinitions() map[string]Definition {
 	videoParameters["source_asset_id"] = stringRule
 	generateProperties := func(video bool) map[string]any {
 		parameters := imageParameters
-		maximumReferences := float64(6)
+		maximumReferences := float64(10)
 		if video {
 			parameters = videoParameters
 			maximumReferences = 12

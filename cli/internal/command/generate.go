@@ -29,6 +29,9 @@ Image flags:
   --profile ID                            auto or profile ID
   --aspect-ratio RATIO | --width N --height N
   --steps N --seed N --cfg N --denoise N --negative-prompt TEXT
+  Qwen-Image 2.1 BF16: --profile qwen-image-2.1-bf16;
+    no --ref = text-to-image, ordered --ref = instruction-based image editing.
+    Use <image1>, <image2> (or 图1、图2) in the prompt; up to 10 images.
 
 Video flags:
   --mode t2v|i2v|fl2v|r2v|v2v|rv2v      Required explicit Director mode
@@ -53,6 +56,7 @@ Locators: local files, file://, asset:ID, job:ID#INDEX, media:ID,
 or h3://CONTEXT/assets/ID. Local inputs are uploaded before submission.
 Defaults: profile=auto, seed=-1, poll-interval=5s, wait-timeout=0.
 Example: h3ctl generate video --mode t2v --prompt 'A sunrise' --wait
+Example: h3ctl generate image --profile qwen-image-2.1-bf16 --prompt 'A ceramic teapot' --wait
 `
 
 type generateFlags struct {
@@ -248,7 +252,7 @@ func (r *Runner) runGenerate(ctx context.Context, args []string) (any, error) {
 				referenceInputs = append([]referenceInput{{Role: "motion", Source: f.source, SourceVideo: true}}, referenceInputs...)
 			}
 		}
-		maximumReferences := 6
+		maximumReferences := 10
 		if kind == "video" {
 			maximumReferences = 12
 		}

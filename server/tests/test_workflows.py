@@ -1445,6 +1445,89 @@ class CompilerTests(unittest.TestCase):
         with self.assertRaises(CapabilityError):
             compile_image_workflow(spec, config(Path(self.temp.name), checkpoint=""), "4" * 32)
 
+    def test_qwen_image_21_bf16_text_generation_uses_native_graph_and_2k_resolution(self) -> None:
+        profile = DEFAULT_REGISTRY.get("qwen-image-2.1-bf16")
+        spec = parse_generation_request({
+            "type": "image", "prompt": "一只陶瓷茶壶", "profile_id": profile.id,
+            "profile_version": profile.version, "profile_digest": profile.digest(),
+            "parameters": {"aspect_ratio": "16:9", "seed": 42},
+        }, lookup)
+        self.assertEqual((spec.width, spec.height, spec.steps, spec.cfg), (2752, 1536, 40, 1))
+        workflow = compile_workflow(spec, self.config, "1" * 32)
+        self.assertEqual(workflow["1"]["inputs"]["unet_name"], "qwen_image_2.1_bf16.safetensors")
+        self.assertEqual(workflow["2"]["inputs"]["clip_name"], "qwen3vl_8b_bf16.safetensors")
+        self.assertEqual(workflow["3"]["inputs"]["vae_name"], "qwen_image_2.1_vae_bf16.safetensors")
+        self.assertEqual(workflow["4"]["inputs"]["dtype"], "default")
+        self.assertEqual(workflow["5"]["class_type"], "TextEncodeQwenImage21")
+        self.assertEqual(workflow["6"]["inputs"], {"width": 2752, "height": 1536, "batch_size": 1})
+        self.assertEqual(workflow["7"]["inputs"]["positive"], ["5", 0])
+        self.assertEqual(workflow["7"]["inputs"]["negative"], ["5", 1])
+        self.assertEqual(workflow["7"]["inputs"]["latent_image"], ["6", 0])
+        self.assertEqual(workflow_evidence(workflow, spec, "1" * 32)["prompt_sha256"], hashlib.sha256(spec.prompt.encode()).hexdigest())
+
+    def test_qwen_image_21_edit_binds_ordered_images_without_latent_denoise(self) -> None:
+        profile = DEFAULT_REGISTRY.get("qwen-image-2.1-bf16")
+        spec = parse_generation_request({
+            "type": "image", "prompt": "保留图1人物，换上图2的衣服，参考 <image2>",
+            "profile_id": profile.id, "profile_version": profile.version,
+            "profile_digest": profile.digest(),
+            "assets": [
+                {"id": "a" * 32, "reference_index": 1},
+                {"id": "b" * 32, "reference_index": 0},
+            ],
+            "parameters": {"width": 2048, "height": 2048, "seed": 9},
+        }, lookup)
+        self.assertEqual([ref.asset_id for ref in spec.references], ["b" * 32, "a" * 32])
+        self.assertEqual(spec.prompt, "保留<image1>人物，换上<image2>的衣服，参考 <image2>")
+        workflow = compile_workflow(spec, self.config, "2" * 32)
+        self.assertEqual(workflow["5"]["inputs"]["images.image_1"], ["103", 0])
+        self.assertEqual(workflow["5"]["inputs"]["images.image_2"], ["105", 0])
+        self.assertEqual(workflow["5"]["inputs"]["resolution"], 0)
+        self.assertEqual(workflow["7"]["inputs"]["latent_image"], ["5", 2])
+        self.assertEqual(workflow["7"]["inputs"]["denoise"], 1.0)
+        self.assertNotIn("denoise", spec.public_parameters())
+        self.assertNotIn("6", workflow)
+        with self.assertRaisesRegex(ApiError, "does not expose latent denoise"):
+            parse_generation_request({
+                "type": "image", "prompt": "edit", "profile_id": profile.id,
+                "profile_version": profile.version, "profile_digest": profile.digest(),
+                "assets": [{"id": "a" * 32}], "parameters": {"denoise": 0.5},
+            }, lookup)
+
+    def test_qwen_image_21_prompt_preview_matches_submitted_edit_prompt(self) -> None:
+        profile = DEFAULT_REGISTRY.get("qwen-image-2.1-bf16")
+        request = {
+            "output_type": "image", "prompt": "保留图1主体，采用 <image2> 配色",
+            "profile_id": profile.id,
+            "references": [
+                {"asset_id": "a" * 32, "reference_index": 0},
+                {"asset_id": "b" * 32, "reference_index": 1},
+            ],
+        }
+        preview = compile_prompt_request(request, lookup)
+        spec = parse_generation_request({
+            **request, "profile_version": profile.version, "profile_digest": profile.digest(),
+        }, lookup)
+        self.assertEqual(preview["prompt"], spec.prompt)
+        self.assertEqual(preview["prompt"], "保留<image1>主体，采用 <image2> 配色")
+
+    def test_qwen_image_21_accepts_ten_images_and_rejects_missing_or_eleventh_reference(self) -> None:
+        profile = DEFAULT_REGISTRY.get("qwen-image-2.1-bf16")
+        assets = {f"{i:032x}": {
+            "id": f"{i:032x}", "kind": "image", "filename": f"{i}.png", "comfy_path": f"h3-studio/{i}.png",
+        } for i in range(1, 12)}
+        request = {"type": "image", "prompt": "合成图10", "profile_id": profile.id,
+                   "profile_version": profile.version, "profile_digest": profile.digest(),
+                   "assets": [{"id": key, "reference_index": index} for index, key in enumerate(list(assets)[:10])]}
+        spec = parse_generation_request(request, assets.__getitem__)
+        self.assertEqual(len(spec.references), 10)
+        self.assertIn("<image10>", spec.prompt)
+        self.assertEqual(len([n for n in compile_workflow(spec, self.config, "3" * 32).values() if n["class_type"] == "LoadImage"]), 10)
+        with self.assertRaisesRegex(ApiError, "at most 10"):
+            parse_generation_request({**request, "assets": [{"id": key} for key in assets]}, assets.__getitem__)
+        with self.assertRaisesRegex(ApiError, "no connected reference"):
+            parse_generation_request({**request, "prompt": "use <image11>"}, assets.__getitem__)
+
     def test_image_to_image_scales_encodes_and_uses_denoise(self) -> None:
         profile = DEFAULT_REGISTRY.get("anything-v5-img2img")
         spec = parse_generation_request(

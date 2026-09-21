@@ -16,6 +16,7 @@ disabled rather than silently falling back to a different graph.
 | `z-image-turbo-zit-nsfw-img2img` | One-image latent img2img + reviewed community LoRA | 8 steps, CFG 1, adjustable LoRA strength and denoise | Experimental latent redraw; not official Z-Image Edit |
 | `qwen-image-2512-fp8-t2i` | Text to image | 50 steps, CFG 4, `euler/simple` | Higher-quality people, natural detail and graphic layouts |
 | `qwen-image-edit-2511-int8` | One-image instruction edit | 40 steps, CFG 3, `euler/simple`, denoise 1 | Identity-preserving edits, material/background/text changes |
+| `qwen-image-2.1-bf16` | Text to image or 1–10 ordered image edits | 40 steps, CFG 1, `euler/simple` | Native 2K generation and instruction editing with full BF16 weights |
 | `flux2-klein-4b-fp8` | Text or 1–4 ordered images | 4 steps, CFG 1, `euler/flux2` | Fast multi-reference editing; Apache-2.0 |
 | `flux2-klein-9b-fp8` | Text or 1–4 ordered images | 4 steps, CFG 1, `euler/flux2` | Gated higher-capacity model; non-commercial only |
 | `anything-v5-*` | Legacy text/image to image | 24 steps | Compatibility fallback only |
@@ -37,16 +38,19 @@ ComfyUI/models/
 │   ├── z_image_turbo_int8_convrot.safetensors
 │   ├── qwen_image_2512_fp8_e4m3fn.safetensors
 │   ├── qwen_image_edit_2511_int8_convrot.safetensors
+│   ├── qwen_image_2.1_bf16.safetensors
 │   ├── flux-2-klein-4b-fp8.safetensors
 │   └── flux-2-klein-9b-fp8.safetensors
 ├── text_encoders/
 │   ├── qwen_3_4b_fp8_mixed.safetensors
 │   ├── qwen_2.5_vl_7b_fp8_scaled.safetensors
 │   ├── qwen_3_4b.safetensors
+│   ├── qwen3vl_8b_bf16.safetensors
 │   └── qwen_3_8b_fp8mixed.safetensors
 └── vae/
     ├── ae.safetensors
     ├── qwen_image_vae.safetensors
+    ├── qwen_image_2.1_vae_bf16.safetensors
     ├── flux2-vae.safetensors
     └── full_encoder_small_decoder.safetensors
 └── loras/
@@ -57,6 +61,8 @@ Sources:
 
 - Z-Image official repository: <https://github.com/Tongyi-MAI/Z-Image>
 - Qwen-Image official repository: <https://github.com/QwenLM/Qwen-Image>
+- Qwen-Image 2.1 official repository and research license: <https://github.com/QwenLM/Qwen-Image-2.1>
+- Official ComfyUI Qwen-Image 2.1 guide: <https://docs.comfy.org/tutorials/image/qwen/qwen-image-2-1>
 - Official ComfyUI templates: <https://github.com/Comfy-Org/workflow_templates>
 - Official ComfyUI Z-Image guide: <https://docs.comfy.org/tutorials/image/z-image/z-image-turbo>
 - Official ComfyUI Qwen Image Edit 2511 guide: <https://docs.comfy.org/tutorials/image/qwen/qwen-image-edit-2511>
@@ -65,8 +71,52 @@ Sources:
 - FLUX.2 Klein 9B model card/license: <https://huggingface.co/black-forest-labs/FLUX.2-klein-9B>
 - ZIT NSFW LoRA v1 source and version metadata: <https://civitai.com/models/2279079?modelVersionId=2565112>
 
-Z-Image and Qwen-Image are Apache-2.0. The pre-existing Anything V5 file has its
+Z-Image and the earlier Qwen-Image profiles use their respective Apache-2.0 releases. **Qwen-Image 2.1 is different:** its weights use the Qwen Research License for non-commercial research and evaluation; commercial use needs a separate license. The pre-existing Anything V5 file has its
 own upstream license and is not treated as the preferred quality profile.
+
+## Qwen-Image 2.1 BF16 text generation and image editing
+
+The `qwen-image-2.1-bf16` profile uses ComfyUI's native `TextEncodeQwenImage21`
+and `QwenImage21Cache` nodes. A recent ComfyUI build exposing both nodes is
+required. Capability probing also requires the exact three BF16 filenames above;
+it will not substitute an FP8/INT8 model or silently reduce the requested size.
+The ComfyUI cache uses `dtype=default`, and the model/encoder/vae loaders retain
+their BF16 files. On a 32 GB GPU, ComfyUI may offload a resident component to
+system RAM as needed; this is not weight quantization.
+
+The reviewed [Comfy-Org/Qwen-Image-2.1 weights](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/tree/main)
+have these SHA-256 values (verify downloads before enabling the profile):
+
+| File | SHA-256 |
+| --- | --- |
+| `qwen_image_2.1_bf16.safetensors` | `89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc` |
+| `qwen3vl_8b_bf16.safetensors` | `68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9` |
+| `qwen_image_2.1_vae_bf16.safetensors` | `bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9` |
+
+With no image references, the same profile generates from text. With one to ten
+images, it performs instruction-conditioned editing rather than a denoise-based
+latent redraw. Reference images are bound in the submitted order. The first
+image establishes the edited canvas; additional images are available for
+identity, clothing, style or layout. Use explicit `<image1>`, `<image2>` etc. in
+the prompt (Chinese `图1` / `图2` are canonicalized):
+
+```bash
+h3ctl generate image --profile qwen-image-2.1-bf16 \
+  --prompt 'A blue ceramic teapot on a white table, product photograph' \
+  --width 2048 --height 2048 --steps 40 --cfg 1 --seed 42 --wait
+
+h3ctl generate image --profile qwen-image-2.1-bf16 \
+  --ref ./subject.png --ref ./palette.png \
+  --prompt 'Preserve the subject of <image1>; apply the color palette of <image2>.' \
+  --width 2048 --height 2048 --steps 40 --cfg 1 --seed 43 --wait
+```
+
+The UI exposes this as one Image Generation profile, with an ordered reference
+summary and native 2K aspect presets. The default is 40 steps / CFG 1. Seeds,
+steps, CFG, negative prompt, and dimensions remain explicit; `denoise` is
+intentionally not exposed because the native editing workflow does not use it.
+The API only accepts dimensions on a 32-pixel grid within the reviewed 2K
+pixel budget. The profile is not selected as an unavailable fallback.
 
 ## Original Z-Image Turbo latent img2img
 

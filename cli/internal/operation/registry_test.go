@@ -68,7 +68,7 @@ func TestPublishedSchemaDescribesNestedContracts(t *testing.T) {
 	}
 	imageSchema, _ := Schema("generate.image")
 	imageReferences := imageSchema["properties"].(map[string]any)["references"].(map[string]any)
-	if imageReferences["maxItems"] != float64(6) {
+	if imageReferences["maxItems"] != float64(10) {
 		t.Fatalf("image references=%v", imageReferences)
 	}
 	if _, ok := parameters["properties"].(map[string]any)["duration"]; !ok {

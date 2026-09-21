@@ -147,6 +147,23 @@ class ProfileRegistryTests(unittest.TestCase):
         self.assertIn("Non-Commercial", quality.license_id)
         self.assertIn("非商业", quality.use_notice)
 
+    def test_qwen_image_21_exposes_full_bf16_unified_image_contract(self) -> None:
+        profile = DEFAULT_REGISTRY.get("qwen-image-2.1-bf16")
+        public = profile.public()
+        self.assertEqual(profile.compiler, "qwen_image_21")
+        self.assertEqual(profile.defaults, {"steps": 40, "cfg": 1})
+        self.assertEqual(profile.limits["references"], 10)
+        self.assertEqual(public["reference_contract"]["min_count"], 0)
+        self.assertEqual(public["reference_contract"]["max_count"], 10)
+        self.assertEqual(public["reference_contract"]["prompt_reference_format"], "<image{n}>")
+        self.assertTrue(public["reference_contract"]["ordered"])
+        self.assertEqual(profile.model_bindings, {
+            "image_diffusion_model": "qwen_image_2.1_bf16.safetensors",
+            "image_text_encoder": "qwen3vl_8b_bf16.safetensors",
+            "image_vae": "qwen_image_2.1_vae_bf16.safetensors",
+        })
+        self.assertIn("非商业", profile.use_notice)
+
     def test_z_image_bf16_is_default_and_int8_remains_an_explicit_fallback(self) -> None:
         default = DEFAULT_REGISTRY.get("z-image-turbo-bf16-t2i")
         latent = DEFAULT_REGISTRY.get("z-image-turbo-bf16-img2img")

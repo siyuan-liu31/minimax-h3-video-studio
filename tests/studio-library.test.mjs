@@ -21,6 +21,15 @@ test("image quality and aspect ratio map to the exact requested dimensions", () 
   }
 });
 
+test("Qwen-Image 2.1 uses native 2K sizes without changing legacy profile dimensions", () => {
+  assert.deepEqual(imageDimensions("2K", "16:9", true), { width: 2752, height: 1536 });
+  assert.deepEqual(imageDimensions("2K", "9:16", true), { width: 1536, height: 2752 });
+  assert.deepEqual(imageDimensions("2K", "3:4", true), { width: 1792, height: 2400 });
+  assert.deepEqual(imageDimensions("2K", "1:1", true), { width: 2048, height: 2048 });
+  assert.deepEqual(imageDimensions("2K", "16:9"), { width: 2048, height: 1152 });
+  assert.deepEqual(imageDimensions("1K", "16:9", true), { width: 1024, height: 576 });
+});
+
 test("remote asset receipts become same-origin reusable library items", () => {
   const id = "a".repeat(32);
   assert.deepEqual(remoteAssetToLibraryItem({

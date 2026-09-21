@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <strong>面向 MiniMax H3 + ComfyUI 的可视化 AI 视频工作台</strong>
+  <strong>面向 Agent 的视频、图片与换声创作工作台</strong>
 </p>
 
 <p align="center">
-  文生视频 · 图生视频 · 多模态参考 · 视频重制 · 分镜 · 长视频工作流
+  MiniMax H3 视频 · Qwen-Image 2.1 BF16 · 换声 · 可视化界面 + h3ctl CLI
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
   <a href="docs/releasing.md">发布规范</a>
 </p>
 
-MiniMax H3 Video Studio 是面向 MiniMax H3 与本地或远程 ComfyUI 的自托管可视化 AI 视频工作台。它把持久化节点画布、多模态参考、七种生成模式、长视频分镜、断点续采、资产管理和面向 Agent 的 Go CLI 组织在一套可审计工作流中。
+MiniMax H3 Video Studio 是自托管的视频、图片和换声创作工作台。前端提供持久化节点画布、MiniMax H3 视频、多模型生图与独立换声工作区；面向 Agent 的 `h3ctl` CLI 可直接调用同一后端，使用持久任务 ID 和 JSON/JSONL 回执。ComfyUI 可运行在本地或远程 GPU 上。
 
 > MiniMax H3 Video Studio 是独立社区项目，与 MiniMax 和 ComfyUI 没有隶属或官方背书关系。
 
@@ -89,10 +89,25 @@ H3 视频支持 16:9、9:16 和 24 FPS，时长使用真实的 `17k+5` 帧网格
 | Z-Image Turbo + 社区 LoRA | 文生图、实验性单图 latent img2img | 独立 Profile，参数与模型绑定可审计 |
 | Qwen-Image 2512 | 高质量文生图 | 人像、自然细节、图文排版 |
 | Qwen-Image Edit 2511 | 单图指令编辑 | 保持主体并修改背景、服装或局部语义 |
+| Qwen-Image 2.1 BF16 | 文生图、1–10 张有序图片指令编辑 | 原生 2K；使用完整 BF16 权重，不静默量化 |
 | FLUX.2 Klein 4B / 9B | 文生图、1–4 张有序图片参考 | 多图人物、服装、场景和风格组合 |
 | Anything V5 | Checkpoint 文生图 / 图生图 | 兼容回退 |
 
-生图支持 1K/2K 与 16:9、9:16、3:4、1:1。可直接在提示词中用“图1”“图2”描述多图关系，系统按参考槽位顺序绑定。尚未发布的 Z-Image-Edit 只显示为不可用能力，不会用 latent img2img 冒充指令编辑。模型许可与精确工作流见 [图片工作流文档](docs/image-workflows.md)。
+生图支持 1K/2K 与 16:9、9:16、3:4、1:1。Qwen-Image 2.1 使用原生 2K 尺寸，默认 40 步、CFG 1；不连接图片时文生图，连接 1–10 张图片时按槽位顺序进行指令编辑。可在提示词中写 `<image1>`、`<image2>` 或“图1”“图2”。其权重采用 [Qwen Research License](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE)，非商业研究/评估以外的商业使用需要另行授权。尚未发布的 Z-Image-Edit 只显示为不可用能力，不会用 latent img2img 冒充指令编辑。模型许可与精确工作流见 [图片工作流文档](docs/image-workflows.md)。
+
+### 音频换声与歌曲翻唱
+
+换声工作区支持拖拽上传、复用现有音频资产以及浏览器话筒录音；录音可明确指定为原音频或参考音频。Vevo2 FM-only 按参考音频替换说话或演唱音色。YingMusic-SVC 执行人声分离、转换和伴奏重混完整流程，支持调整步数、引导强度与随机种子以多次尝试。最终混音、换声干声、伴奏可分别试听和导出；回声、混响可独立开关，试听与下载使用同一持久结果。音频、图片和视频任务共用 GPU 独占队列。
+
+```bash
+h3ctl voice convert ./speech.wav --reference ./voice-reference.wav --engine vevo2
+h3ctl voice convert ./song.wav --reference ./voice-reference.wav --engine yingmusic \
+  --steps 75 --cfg 0.9 --seed 42 --keep-stems --echo=false --reverb=false
+h3ctl voice download TASK_ID --track dry_vocal --to ./dry-vocal.wav
+h3ctl generate image --profile qwen-image-2.1-bf16 \
+  --prompt '蓝色陶瓷茶壶，产品摄影' --width 2048 --height 2048 --steps 40 --cfg 1 \
+  --wait --download ./teapot.png
+```
 
 ### 长视频：分段生成与续接
 

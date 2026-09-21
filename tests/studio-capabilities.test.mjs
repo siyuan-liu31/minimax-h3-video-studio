@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { imageProfileAcceptsReferenceCount, imageReferencePolicy, profileSupportsParameter } from "../app/studio-capabilities.ts";
+import { imageProfileAcceptsReferenceCount, imageReferencePolicy, profileSupportsParameter, promptImageReferenceNumbers } from "../app/studio-capabilities.ts";
 
 function imageProfile(overrides = {}) {
   return {
@@ -57,4 +57,18 @@ test("an original Z-Image latent img2img profile can expose denoise without expo
   assert.equal(imageProfileAcceptsReferenceCount(profile, 1), true);
   assert.equal(profileSupportsParameter(profile, "denoise"), true);
   assert.equal(profileSupportsParameter(profile, "lora_strength"), false);
+});
+
+test("Qwen-Image 2.1 accepts zero to ten ordered images and reads native image tags", () => {
+  const profile = imageProfile({
+    id: "qwen-image-2.1-bf16",
+    compiler: "qwen_image_21",
+    parameter_schema: { steps: "integer", cfg: "number", seed: "integer" },
+    reference_contract: { media_types: ["image"], min_count: 0, max_count: 10, ordered: true },
+  });
+  assert.equal(imageProfileAcceptsReferenceCount(profile, 0), true);
+  assert.equal(imageProfileAcceptsReferenceCount(profile, 10), true);
+  assert.equal(imageProfileAcceptsReferenceCount(profile, 11), false);
+  assert.equal(profileSupportsParameter(profile, "denoise"), false);
+  assert.deepEqual(promptImageReferenceNumbers("Keep <image1> and use 图10; render at 4K 16:9."), [1, 10]);
 });

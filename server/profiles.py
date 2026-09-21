@@ -20,7 +20,7 @@ from .errors import ApiError
 ALLOWED_COMPILERS = frozenset({
     "h3_fl", "h3_ref", "checkpoint_t2i", "checkpoint_img2img",
     "z_image_t2i", "z_image_img2img", "z_image_lora_t2i", "z_image_lora_img2img",
-    "qwen_image_t2i", "qwen_image_edit", "flux2_klein",
+    "qwen_image_t2i", "qwen_image_edit", "qwen_image_21", "flux2_klein",
 })
 ALLOWED_MODALITIES = frozenset({"text", "image", "video", "audio"})
 ALLOWED_MODEL_ROLES = frozenset(
@@ -111,6 +111,17 @@ class WorkflowProfile:
                 "order_field": "reference_index",
                 "index_base": 0,
                 "prompt_reference_format": "image {n}",
+                "prompt_index_base": 1,
+                "roles": ["reference", "init_image", "image_edit"],
+            })
+        elif self.compiler == "qwen_image_21":
+            reference_contract.update({
+                "min_count": 0,
+                "max_count": 10,
+                "ordered": True,
+                "order_field": "reference_index",
+                "index_base": 0,
+                "prompt_reference_format": "<image{n}>",
                 "prompt_index_base": 1,
                 "roles": ["reference", "init_image", "image_edit"],
             })
@@ -249,6 +260,16 @@ COMPILER_BASELINES: dict[str, dict[str, Any]] = {
         ),
         "models": ("image_diffusion_model", "image_text_encoder", "image_vae"),
     },
+    "qwen_image_21": {
+        "output_type": "image",
+        "modalities": ("text", "image"),
+        "nodes": (
+            "UNETLoader", "CLIPLoader", "VAELoader", "TextEncodeQwenImage21",
+            "QwenImage21Cache", "EmptyLatentImage", "LoadImage", "ImageScale",
+            "ImageScaleToTotalPixels", "KSampler", "VAEDecode", "SaveImage",
+        ),
+        "models": ("image_diffusion_model", "image_text_encoder", "image_vae"),
+    },
     "flux2_klein": {
         "output_type": "image",
         "modalities": ("text", "image"),
@@ -325,6 +346,11 @@ COMPILER_PARAMETERS: dict[str, dict[str, Any]] = {
         "schema": {"width": "integer", "height": "integer", "steps": "integer", "cfg": "number", "denoise": "number", "seed": "integer"},
         "defaults": {"steps": 40, "cfg": 3, "denoise": 1},
         "limits": {"references": 1, "steps": [20, 60], "cfg": [1, 10], "denoise": [0.05, 1]},
+    },
+    "qwen_image_21": {
+        "schema": {"width": "integer", "height": "integer", "steps": "integer", "cfg": "number", "seed": "integer"},
+        "defaults": {"steps": 40, "cfg": 1},
+        "limits": {"references": 10, "steps": [1, 60], "cfg": [1, 10]},
     },
     "flux2_klein": {
         "schema": {"width": "integer", "height": "integer", "steps": "integer", "cfg": "number", "seed": "integer"},
@@ -582,6 +608,24 @@ BUILTIN_PROFILES = (
             "image_text_encoder": "qwen_3_4b.safetensors",
             "image_vae": "ae.safetensors",
             "image_lora": "ZITnsfwLoRA.safetensors",
+        },
+    ),
+    _profile(
+        id="qwen-image-2.1-bf16", version="1.0", display_name="Qwen-Image 2.1 BF16 · 文生图 / 1–10 图指令编辑",
+        output_type="image", input_modalities=("text", "image"),
+        required_nodes=COMPILER_BASELINES["qwen_image_21"]["nodes"],
+        required_models=("image_diffusion_model", "image_text_encoder", "image_vae"),
+        parameter_schema=COMPILER_PARAMETERS["qwen_image_21"]["schema"],
+        defaults=COMPILER_PARAMETERS["qwen_image_21"]["defaults"],
+        limits=COMPILER_PARAMETERS["qwen_image_21"]["limits"],
+        compiler="qwen_image_21",
+        license_id="Qwen Research License",
+        license_url="https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE",
+        use_notice="Qwen-Image 2.1 权重仅限研究与评估等非商业用途；商业使用须另行取得许可。使用 BF16 主模型、BF16 Qwen3-VL 8B 编码器和 BF16 VAE，不自动量化。",
+        model_bindings={
+            "image_diffusion_model": "qwen_image_2.1_bf16.safetensors",
+            "image_text_encoder": "qwen3vl_8b_bf16.safetensors",
+            "image_vae": "qwen_image_2.1_vae_bf16.safetensors",
         },
     ),
     _profile(

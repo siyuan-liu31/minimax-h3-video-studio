@@ -258,6 +258,8 @@ class ApiIntegrationTests(unittest.TestCase):
         output.write_bytes(b"RIFFvoice")
         dry_output = self.config.data_root / "voice-dry.wav"
         dry_output.write_bytes(b"RIFFdry")
+        accompaniment_output = self.config.data_root / "voice-accompaniment.wav"
+        accompaniment_output.write_bytes(b"RIFFaccompaniment")
 
         class FakeVoice:
             @staticmethod
@@ -284,6 +286,8 @@ class ApiIntegrationTests(unittest.TestCase):
             def output_path(_task_id, track="mix"):
                 if track == "dry_vocal":
                     return dry_output
+                if track == "accompaniment":
+                    return accompaniment_output
                 if track != "mix":
                     raise ApiError(404, "voice_track_missing", "voice output track was not retained")
                 return output
@@ -325,8 +329,10 @@ class ApiIntegrationTests(unittest.TestCase):
         self.assertEqual((status, dry_preview), (200, b"RIFFdry"))
         status, _, dry_download = self.request("GET", f"/api/voice/tasks/{task_id}/download?track=dry_vocal", headers=auth)
         self.assertEqual((status, dry_download), (200, dry_preview))
-        status, _, _ = self.request("GET", f"/api/voice/tasks/{task_id}/preview?track=accompaniment", headers=auth)
-        self.assertEqual(status, 404)
+        status, _, accompaniment_preview = self.request("GET", f"/api/voice/tasks/{task_id}/preview?track=accompaniment", headers=auth)
+        self.assertEqual((status, accompaniment_preview), (200, b"RIFFaccompaniment"))
+        status, _, accompaniment_download = self.request("GET", f"/api/voice/tasks/{task_id}/download?track=accompaniment", headers=auth)
+        self.assertEqual((status, accompaniment_download), (200, accompaniment_preview))
         status, _, _ = self.request("GET", f"/api/voice/tasks/{task_id}/download?track=../dry", headers=auth)
         self.assertEqual(status, 404)
 
@@ -509,6 +515,53 @@ class ApiIntegrationTests(unittest.TestCase):
         detail = json.loads(body)
         self.assertEqual(detail["raw_prompt"], "A studio product photograph")
         self.assertEqual(detail["prompt_parts"], {})
+
+    def test_qwen_image_21_text_generation_http_contract_uses_bf16_native_graph(self) -> None:
+        profile = DEFAULT_REGISTRY.get("qwen-image-2.1-bf16")
+        request = json.dumps({
+            "output_type": "image", "prompt": "A ceramic teapot", "profile_id": profile.id,
+            "profile_version": profile.version, "profile_digest": profile.digest(),
+            "parameters": {"width": 2048, "height": 2048, "steps": 40, "cfg": 1, "seed": 42},
+            "references": [],
+        }).encode()
+        status, _, body = self.request(
+            "POST", "/api/generate", request,
+            {"Content-Type": "application/json", "X-API-Key": "test-key"},
+        )
+        self.assertEqual(status, 202, body)
+        receipt = json.loads(body)
+        self.assertEqual(receipt["parameters"]["profile_id"], profile.id)
+        self.assertNotIn("denoise", receipt["parameters"])
+        self.assertEqual(self.fake.workflow["1"]["inputs"]["unet_name"], "qwen_image_2.1_bf16.safetensors")
+        self.assertEqual(self.fake.workflow["6"]["inputs"]["width"], 2048)
+        self.assertEqual(self.fake.workflow["7"]["inputs"]["steps"], 40)
+
+    def test_qwen_image_21_edit_http_contract_binds_reference_order(self) -> None:
+        profile = DEFAULT_REGISTRY.get("qwen-image-2.1-bf16")
+        asset_id = "8" * 32
+        stored_name = f"{asset_id}.png"
+        (self.server.runtime.assets.upload_root / stored_name).write_bytes(
+            base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+        )
+        self.server.runtime.assets.metadata.put(asset_id, {
+            "id": asset_id, "kind": "image", "filename": "source.png",
+            "stored_name": stored_name, "comfy_path": f"h3-studio/{stored_name}",
+            "media": {"width": 1024, "height": 1024}, "created_at": 1.0,
+        })
+        request = json.dumps({
+            "output_type": "image", "prompt": "Turn 图1 blue", "profile_id": profile.id,
+            "profile_version": profile.version, "profile_digest": profile.digest(),
+            "parameters": {"width": 2048, "height": 2048, "steps": 40, "cfg": 1, "seed": 43},
+            "references": [{"asset_id": asset_id, "role": "reference", "reference_index": 0}],
+        }).encode()
+        status, _, body = self.request(
+            "POST", "/api/generate", request,
+            {"Content-Type": "application/json", "X-API-Key": "test-key"},
+        )
+        self.assertEqual(status, 202, body)
+        self.assertIn("<image1>", self.fake.workflow["5"]["inputs"]["prompt"])
+        self.assertEqual(self.fake.workflow["5"]["inputs"]["images.image_1"], ["103", 0])
+        self.assertEqual(self.fake.workflow["7"]["inputs"]["latent_image"], ["5", 2])
 
     def test_prompt_compile_endpoint(self) -> None:
         body = json.dumps({"output_type": "video", "prompt": "A cat walks", "parts": {"camera": "slow dolly in"}}).encode()

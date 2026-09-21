@@ -176,7 +176,7 @@ test("image generation submits explicit quality dimensions for every supported r
   const source = await readFile(studioPath, "utf8");
 
   assert.match(source, /quality:\s*"1K"/);
-  assert.match(source, /imageDimensions\(targetImage\.quality, targetImage\.aspectRatio\)/);
+  assert.match(source, /imageDimensions\(targetImage\.quality, targetImage\.aspectRatio, isQwenImage21Profile\(resolvedProfile\)\)/);
   assert.match(source, /width:\s*imageSize\.width/);
   assert.match(source, /height:\s*imageSize\.height/);
   assert.match(source, /imageParams\?: ImageParams/);

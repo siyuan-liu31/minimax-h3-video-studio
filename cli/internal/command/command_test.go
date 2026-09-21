@@ -195,6 +195,51 @@ func TestGenerateImagePayload(t *testing.T) {
 	}
 }
 
+func TestGenerateQwenImage21OrderedReferencesAndNativeSize(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/capabilities" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"profiles": []any{map[string]any{
+				"id": "qwen-image-2.1-bf16", "version": "1.0", "manifest_sha256": strings.Repeat("a", 64),
+			}}})
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/api/generate" {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"job_id": testJobID})
+	}))
+	defer server.Close()
+	code, _, stderr := executeTest(t, []string{
+		"--server", server.URL, "generate", "image", "--profile", "qwen-image-2.1-bf16",
+		"--prompt", "Keep <image1> subject and use <image2> palette",
+		"--ref", "asset:" + testAssetID, "--ref", "asset:" + testMediaID,
+		"--width", "2048", "--height", "2048", "--steps", "40", "--cfg", "1", "--seed", "42",
+	}, "")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if payload["profile_id"] != "qwen-image-2.1-bf16" || payload["output_type"] != "image" {
+		t.Fatalf("payload=%v", payload)
+	}
+	parameters := payload["parameters"].(map[string]any)
+	if parameters["width"] != float64(2048) || parameters["height"] != float64(2048) || parameters["steps"] != float64(40) {
+		t.Fatalf("parameters=%v", parameters)
+	}
+	references := payload["references"].([]any)
+	if len(references) != 2 {
+		t.Fatalf("references=%v", references)
+	}
+	for index, id := range []string{testAssetID, testMediaID} {
+		reference := references[index].(map[string]any)
+		if reference["asset_id"] != id || reference["reference_index"] != float64(index) {
+			t.Fatalf("reference[%d]=%v", index, reference)
+		}
+	}
+}
+
 func TestGenerateCommandRejectsEmptyJobReceiptAndKeepsRequestID(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

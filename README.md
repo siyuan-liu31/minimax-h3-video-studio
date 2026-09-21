@@ -12,11 +12,11 @@
 </p>
 
 <p align="center">
-  <strong>The visual AI video workspace for MiniMax H3 + ComfyUI</strong>
+  <strong>An Agent-friendly AI video, image, and voice workspace</strong>
 </p>
 
 <p align="center">
-  Text-to-video · Image-to-video · Reference-to-video · Video-to-video · Storyboards · Long-form workflows
+  MiniMax H3 video · Qwen-Image 2.1 BF16 · Voice conversion · Visual studio + h3ctl CLI
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@
   <a href="docs/releasing.md">Release policy</a>
 </p>
 
-MiniMax H3 Video Studio is a self-hosted visual workspace for creating AI videos with MiniMax H3 and local or remote ComfyUI. It combines a persistent node canvas, multimodal references, seven generation modes, long-form storyboards, resumable sampling, asset management, and an Agent-friendly Go CLI in one auditable workflow.
+MiniMax H3 Video Studio is a self-hosted creation workspace for video, images, and voice. Its visual interface combines a persistent node canvas, MiniMax H3 video workflows, multiple image models including Qwen-Image 2.1, and a dedicated voice-conversion workspace. The Agent-friendly `h3ctl` CLI exposes the same backend through composable commands and versioned operations, with durable job IDs and JSON/JSONL receipts. Run ComfyUI locally or on a remote GPU.
 
 > MiniMax H3 Video Studio is an independent community project. It is not affiliated with or endorsed by MiniMax or ComfyUI.
 
@@ -57,6 +57,7 @@ flowchart LR
 | Long-running generations | Keep a browser or script attached | Durable job IDs, reconnectable waiting, cancellation, and resumable sampling |
 | Local and rented GPUs | Manage endpoints and file transfer yourself | Same-origin web gateway plus reusable direct or SSH CLI contexts |
 | Agent automation | Build custom API calls | Stable `h3ctl` commands with JSON/JSONL receipts and atomic media operations |
+| Song and speech voice conversion | Separate tools and ad-hoc files | Upload/record in the UI or use `h3ctl voice`; preview and download completed tracks |
 
 ## Generated result preview
 
@@ -108,10 +109,23 @@ H3 video supports 16:9, 9:16, and 24 FPS. Duration follows the actual `17k+5` fr
 | Z-Image Turbo + community LoRA | Text to image; experimental single-image latent img2img | Separate, auditable profiles with model-bound parameters |
 | Qwen-Image 2512 | High-quality text to image | Portraits, natural detail, and text layout |
 | Qwen-Image Edit 2511 | Instruction-based single-image editing | Preserve the subject while changing a background, clothing, or local semantics |
+| Qwen-Image 2.1 BF16 | Text to image; one to ten ordered image edits | Native 2K generation and instruction edits without silent weight quantization |
 | FLUX.2 Klein 4B / 9B | Text to image; one to four ordered image references | Combining people, clothing, scenes, and styles across images |
 | Anything V5 | Checkpoint text to image / image to image | Compatibility fallback |
 
-Image generation supports 1K/2K and 16:9, 9:16, 3:4, and 1:1. Describe multi-image relationships directly with “Image 1” and “Image 2”; the system binds references in slot order. The unreleased Z-Image-Edit capability remains visibly unavailable and is not misrepresented by latent img2img. See [Image Workflows](docs/image-workflows.md) for licenses and exact workflow contracts.
+Image generation supports 1K/2K and 16:9, 9:16, 3:4, and 1:1. Qwen-Image 2.1 uses its native 2K presets, default 40 steps / CFG 1, and one BF16 Profile for text-to-image and instruction editing. Describe multi-image relationships with `<image1>`, `<image2>` (or “图1”, “图2”); references are bound in slot order. Its weights use the [Qwen Research License](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE): non-commercial research/evaluation only unless separately licensed. The unreleased Z-Image-Edit capability remains visibly unavailable and is not misrepresented by latent img2img. See [Image Workflows](docs/image-workflows.md) for licenses and exact workflow contracts.
+
+### Voice conversion and song covers
+
+The Voice workspace accepts drag-and-drop uploads, existing audio assets, or a browser microphone recording. Recordings can be assigned explicitly as either the source or the voice reference. Vevo2 FM-only changes a speech/voice recording toward the reference timbre. YingMusic-SVC performs the full song workflow—vocal separation, timbre conversion, and accompaniment remix—with adjustable steps, guidance, and seed for repeatable variants. Its final mix, converted dry vocal, and accompaniment can be previewed and exported individually; echo and reverb can be switched independently. The preview and downloaded track use the same persisted result. Jobs share one GPU lease queue with video and image generation and remain cancellable and recoverable.
+
+```bash
+h3ctl voice convert ./speech.wav --reference ./voice-reference.wav --engine vevo2
+h3ctl voice convert ./song.wav --reference ./voice-reference.wav --engine yingmusic \
+  --steps 75 --cfg 0.9 --seed 42 --keep-stems --echo=false --reverb=false
+h3ctl voice download TASK_ID --track mix --to ./cover.wav
+h3ctl voice download TASK_ID --track dry_vocal --to ./dry-vocal.wav
+```
 
 ### Long video: segmented generation and continuation
 
@@ -160,12 +174,19 @@ flowchart LR
 
 ### Go CLI for Agent automation
 
-`h3ctl` exposes stable atomic commands for asset transfer, image and video generation, resumable waiting, media derivation, long-video projects, and unlimited-duration character migration. `video.character_migration.plan`, `video.character_migration.produce`, and `media.mux_audio` expose strict Draft 2020-12 contracts for Agents. It also includes an isolated local `douyin parse|download|serve` utility backed by `yt-dlp`, with a loopback-only Swagger API; this utility never opens the H3 SSH context. The CLI supports local files, remote asset locators, SSH contexts for changing rented-machine addresses, and JSON/JSONL output. See the [Go CLI guide](docs/cli.md) for build, connection, command, cookie-safety, and local API details.
+`h3ctl` exposes stable atomic commands for asset transfer, image/video generation, voice conversion, resumable waiting, media derivation, long-video projects, and character migration. Agents can use its strict Draft 2020-12 operation contracts and structured JSON/JSONL receipts without driving the browser. The same jobs and media remain available in the frontend. Local files, remote asset locators, and reusable direct/SSH contexts let an Agent work with a changing rented-machine address. A separate loopback-only `douyin parse|download|serve` utility never opens the H3 SSH context. See the [Go CLI guide](docs/cli.md) for the full command and safety contract.
 
 ```bash
 h3ctl video compose --spec trilogy.json --to final.mp4 --timeout 0
 h3ctl video migrate-character --source performance.mp4 --character hero.png \
   --source-subject "the centered dancer" --steps 4 --to migrated.mp4
+h3ctl generate image --profile qwen-image-2.1-bf16 \
+  --prompt 'A blue ceramic teapot on a white table' --width 2048 --height 2048 \
+  --steps 40 --cfg 1 --seed 42 --wait --download ./teapot.png
+h3ctl generate image --profile qwen-image-2.1-bf16 \
+  --ref ./subject.png --ref ./palette.png \
+  --prompt 'Preserve <image1> subject and apply <image2> colors' \
+  --width 2048 --height 2048 --wait --download ./edited.png
 ```
 
 > Branding compatibility: the CLI remains `h3ctl`. Existing `H3_STUDIO_*` environment variables, `h3-studio` data paths, API contracts, and persisted browser keys remain unchanged.

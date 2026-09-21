@@ -153,6 +153,34 @@ h3ctl generate image \
   --wait --download ./output.png
 ```
 
+Qwen-Image 2.1 uses one BF16 profile for both text-to-image and ordered
+instruction edits. Specify it explicitly so an Agent does not silently use
+another available image model. It requires a recent ComfyUI with the native
+Qwen 2.1 nodes and the three BF16 model files; check `h3ctl profile show
+qwen-image-2.1-bf16` first. The upstream weights use the non-commercial
+[Qwen Research License](https://github.com/QwenLM/Qwen-Image-2.1/blob/main/LICENSE).
+
+```bash
+# No reference: native 2K text-to-image. Omit --seed for a random seed.
+h3ctl generate image --profile qwen-image-2.1-bf16 \
+  --prompt 'A blue ceramic teapot on a white table, product photograph' \
+  --width 2048 --height 2048 --steps 40 --cfg 1 --seed 42 \
+  --wait --download ./teapot.png
+
+# Reference order is meaningful; the first image establishes the edit canvas.
+h3ctl generate image --profile qwen-image-2.1-bf16 \
+  --ref ./subject.png --ref ./palette.png \
+  --prompt 'Preserve the subject of <image1>; apply the palette of <image2>.' \
+  --width 2048 --height 2048 --steps 40 --cfg 1 --seed 43 \
+  --wait --download ./edited.png
+```
+
+This profile accepts 1–10 images for editing, supports explicit steps, CFG,
+negative prompt, seed and native 2K dimensions, and does not support `denoise`.
+The CLI's `generate.image` Agent operation shares the same profile and ordered
+references. See [Image Workflows](image-workflows.md) for the exact graph,
+capability gate and license boundary.
+
 Video modes are explicit:
 
 ```bash

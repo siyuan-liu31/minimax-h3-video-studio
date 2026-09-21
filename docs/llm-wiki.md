@@ -1,6 +1,6 @@
 # MiniMax H3 Video Studio LLM Wiki
 
-> 最后校准：2026-09-21（Asia/Shanghai，本地源码与测试；已核对开发机 `current` 布局及换声运行时）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
+> 最后校准：2026-09-22（Asia/Shanghai，本地源码与全套测试；已核对开发机 ComfyUI 0.37 的 Qwen-Image 2.1 原生节点与 H3 必需节点）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
 
 ## 1. 先看这里
 
@@ -244,11 +244,13 @@ PromptMentionComposer
 
 - H3 FL2VA / Ref2VA：Turbo LoRA 与 Base
 - Z-Image Turbo：T2I、latent img2img、社区 LoRA 变体
-- Qwen-Image 2512 T2I、Qwen-Image Edit 2511
+- Qwen-Image 2512 T2I、Qwen-Image Edit 2511、Qwen-Image 2.1 BF16 统一 T2I / 1–10 图编辑
 - FLUX.2 Klein 4B/9B
 - Anything V5 回退
 
 外部 Profile 位于 `$H3_STUDIO_DATA_ROOT/profiles/*.json`，只能选择代码已经审核的 compiler。`server/comfy.py::capabilities` 结合 `/object_info`、模型选择项和 Profile 声明计算 `available`；前端只消费 capability，不自行推测文件是否存在。
+
+`qwen-image-2.1-bf16` 使用受控 compiler `qwen_image_21`，固定绑定完整 BF16 的 diffusion model、Qwen3-VL 8B text encoder 与 VAE，不做隐式量化。能力探测要求新版 ComfyUI 的 `TextEncodeQwenImage21` 和 `QwenImage21Cache` 节点、对应接口以及三份精确权重；旧 ComfyUI 应将 Profile 标为不可用，而不是改用旧版 Qwen 模型。无图时使用 `EmptyLatentImage` 文生图；有图时按 `reference_index` 生成 `images.image_N` Autogrow 输入，首图通过 `ImageScale` 确定编辑尺寸，附加参考图缩至 1MP，文本提示中的“图N / image N / <imageN>”统一为 `<imageN>`。输出尺寸使用独立的原生 2K preset，参数默认 40 步、CFG 1、`euler/simple`，不对外接受或回显 `denoise`。其权重为 Qwen Research License，非商业研究/评估以外用途须单独授权；不得混同旧 Qwen-Image 的 Apache-2.0 许可。
 
 ### 5.2 编译顺序
 

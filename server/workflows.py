@@ -36,6 +36,12 @@ IMAGE_PRESETS: dict[str, tuple[int, int]] = {
     "3:4": (768, 1024),
     "1:1": (1024, 1024),
 }
+QWEN_IMAGE_21_PRESETS: dict[str, tuple[int, int]] = {
+    "16:9": (2752, 1536),
+    "9:16": (1536, 2752),
+    "3:4": (1792, 2400),
+    "1:1": (2048, 2048),
+}
 PROMPT_MODES = {"default", "preserve_tags_only"}
 DIRECTOR_MODES = {"auto", "t2v", "i2v", "fl2v", "r2v", "v2v", "rv2v"}
 TAG_PATTERN = re.compile(r"<(Picture|Video|Audio)\s+(\d+)>", re.IGNORECASE)
@@ -136,7 +142,7 @@ class GenerationSpec:
             if self.compiler in {"z_image_lora_t2i", "z_image_lora_img2img"}:
                 value["image_lora"] = self.image_lora
                 value["lora_strength"] = self.lora_strength
-            if self.compiler != "flux2_klein":
+            if self.compiler not in {"flux2_klein", "qwen_image_21"}:
                 value["denoise"] = self.denoise
         return value
 
@@ -244,7 +250,7 @@ def _seed(value: Any) -> int:
     return int(_number(value, "seed", minimum=0, maximum=2**63 - 1, integer=True))
 
 
-def _resolution(parameters: dict[str, Any], *, image: bool) -> tuple[int, int]:
+def _resolution(parameters: dict[str, Any], *, image: bool, qwen_image_21: bool = False) -> tuple[int, int]:
     preset = parameters.get("aspect_ratio", parameters.get("resolution", "16:9"))
     preset_aliases = {
         "landscape": "16:9",
@@ -257,7 +263,7 @@ def _resolution(parameters: dict[str, Any], *, image: bool) -> tuple[int, int]:
     if isinstance(preset, str):
         preset = preset_aliases.get(preset.lower(), preset)
     if "width" not in parameters and "height" not in parameters:
-        presets = IMAGE_PRESETS if image else H3_PRESETS
+        presets = QWEN_IMAGE_21_PRESETS if qwen_image_21 else IMAGE_PRESETS if image else H3_PRESETS
         if not isinstance(preset, str) or preset not in presets:
             raise ApiError(
                 400,
@@ -267,9 +273,10 @@ def _resolution(parameters: dict[str, Any], *, image: bool) -> tuple[int, int]:
         return presets[preset]
     if "width" not in parameters or "height" not in parameters:
         raise ApiError(400, "invalid_resolution", "width and height must be provided together")
-    width = int(_number(parameters["width"], "width", minimum=256, maximum=2048, integer=True))
-    height = int(_number(parameters["height"], "height", minimum=256, maximum=2048, integer=True))
-    multiple = 8 if image else 32
+    maximum_dimension = 3072 if qwen_image_21 else 2048
+    width = int(_number(parameters["width"], "width", minimum=256, maximum=maximum_dimension, integer=True))
+    height = int(_number(parameters["height"], "height", minimum=256, maximum=maximum_dimension, integer=True))
+    multiple = 32 if qwen_image_21 else 8 if image else 32
     if width % multiple or height % multiple:
         raise ApiError(
             400,
@@ -278,7 +285,7 @@ def _resolution(parameters: dict[str, Any], *, image: bool) -> tuple[int, int]:
         )
     # Image generation accepts explicit dimensions up to a 2048-square pixel
     # budget. H3 video keeps its separate, smaller reviewed resolution budget.
-    maximum_pixels = 2048 * 2048 if image else 1_179_648
+    maximum_pixels = 4_300_800 if qwen_image_21 else 2048 * 2048 if image else 1_179_648
     if width * height > maximum_pixels:
         raise ApiError(
             400,
@@ -746,7 +753,11 @@ def _bind_director_source_prompt(prompt: str, director_mode: str, source_asset_i
     return prompt
 
 
-def _validate_reference_counts(references: list[AssetRef]) -> None:
+def _validate_reference_counts(references: list[AssetRef], output_type: str) -> None:
+    if output_type == "image":
+        if len(references) > 10:
+            raise ApiError(400, "too_many_references", "image generation supports at most 10 reference images")
+        return
     if len(references) > H3_MAX_REFERENCES:
         raise ApiError(400, "too_many_references", f"H3 supports at most {H3_MAX_REFERENCES} total reference files")
     for kind, maximum in H3_REFERENCE_CAPACITY.items():
@@ -952,6 +963,17 @@ def _compile_flux2_prompt(
     )
 
 
+def _compile_qwen21_prompt(
+    prompt: str,
+    references: tuple[AssetRef, ...],
+    parts: Any,
+) -> str:
+    """Bind ordered canvas references to Qwen-Image 2.1's native <imageN> tags."""
+
+    normalized = _compile_flux2_prompt(prompt, references, parts)
+    return re.sub(r"(?<![A-Za-z0-9_])image ([1-9]\d*)(?![A-Za-z0-9_])", r"<image\1>", normalized)
+
+
 def _legacy_compile_prompt(
     prompt: str,
     *,
@@ -1057,7 +1079,7 @@ def compile_prompt_request(data: Any, lookup_asset: Callable[[str], dict[str, An
     references, graph_prompt = _graph_references(data.get("graph"), lookup_asset, output_type)
     if not references:
         references = _explicit_references(data.get("references", data.get("assets")), lookup_asset)
-    _validate_reference_counts(references)
+    _validate_reference_counts(references, output_type)
     _validate_reference_roles(output_type, references)
     parameters = data.get("parameters", {}) if isinstance(data.get("parameters", {}), dict) else {}
     requested = str(data.get("mode", parameters.get("mode", "auto"))).lower()
@@ -1094,7 +1116,15 @@ def compile_prompt_request(data: Any, lookup_asset: Callable[[str], dict[str, An
     )
     duration = float(_number(parameters.get("duration", data.get("duration", 5)), "duration", minimum=5, maximum=H3_MAX_DURATION_SECONDS)) if output_type == "video" else 0.0
     duration_actual = h3_frame_count(duration) / 24 if output_type == "video" else 0.0
-    if selected_profile and selected_profile.compiler == "flux2_klein":
+    if selected_profile and selected_profile.compiler == "qwen_image_21":
+        if output_type != "image" or len(references) > 10 or any(reference.kind != "image" for reference in references):
+            raise ApiError(400, "profile_mismatch", "Qwen-Image 2.1 accepts text and up to ten image references")
+        if "denoise" in parameters:
+            raise ApiError(400, "invalid_parameter", "Qwen-Image 2.1 does not expose latent denoise")
+        compiled = _compile_qwen21_prompt(
+            prompt, tuple(references), data.get("parts", data.get("prompt_parts")),
+        )
+    elif selected_profile and selected_profile.compiler == "flux2_klein":
         if output_type != "image" or len(references) > 4 or any(reference.kind != "image" for reference in references):
             raise ApiError(400, "profile_mismatch", "FLUX.2 Klein accepts zero to four image references")
         preview_negative = _string(data.get("negative_prompt", parameters.get("negative_prompt", "")), "negative_prompt", 6_000)
@@ -1182,7 +1212,7 @@ def parse_generation_request(
     )
     if explicit and not references:
         references = explicit
-    _validate_reference_counts(references)
+    _validate_reference_counts(references, output_type)
     _validate_reference_roles(output_type, references)
     prompt_mode = _prompt_mode(data) if output_type == "video" else "default"
     raw_prompt = _string(
@@ -1191,7 +1221,6 @@ def parse_generation_request(
         preserve_whitespace=prompt_mode == "preserve_tags_only",
     )
     negative = _string(data.get("negative_prompt", parameters.get("negative_prompt", "")), "negative_prompt", 6_000)
-    width, height = _resolution(parameters, image=output_type == "image")
     seed = _seed(parameters.get("seed", -1))
 
     if output_type == "image":
@@ -1201,11 +1230,14 @@ def parse_generation_request(
         requested_profile = str(data.get("profile_id", "auto"))
         profile = registry.choose(output_type, mode, references, requested_profile)
         _validate_profile_identity(data, requested_profile, profile)
+        width, height = _resolution(
+            parameters, image=True, qwen_image_21=profile.compiler == "qwen_image_21",
+        )
         expected = {
             "checkpoint_img2img", "z_image_img2img", "z_image_lora_img2img",
-            "qwen_image_edit", "flux2_klein",
+            "qwen_image_edit", "qwen_image_21", "flux2_klein",
         } if references else {
-            "checkpoint_t2i", "z_image_t2i", "z_image_lora_t2i", "qwen_image_t2i", "flux2_klein",
+            "checkpoint_t2i", "z_image_t2i", "z_image_lora_t2i", "qwen_image_t2i", "qwen_image_21", "flux2_klein",
         }
         if profile.compiler not in expected:
             raise ApiError(400, "profile_mismatch", f"profile does not support {mode}")
@@ -1217,6 +1249,12 @@ def parse_generation_request(
             if width % 16 or height % 16:
                 raise ApiError(400, "invalid_resolution", "FLUX.2 width and height must be multiples of 16")
             prompt = _compile_flux2_prompt(
+                raw_prompt, tuple(references), data.get("parts", data.get("prompt_parts")),
+            )
+        elif profile.compiler == "qwen_image_21":
+            if "denoise" in parameters:
+                raise ApiError(400, "invalid_parameter", "Qwen-Image 2.1 uses instruction-conditioned editing and does not expose latent denoise")
+            prompt = _compile_qwen21_prompt(
                 raw_prompt, tuple(references), data.get("parts", data.get("prompt_parts")),
             )
         else:
@@ -1234,12 +1272,12 @@ def parse_generation_request(
         sampler = "res_multistep" if profile.compiler in {
             "z_image_t2i", "z_image_img2img", "z_image_lora_t2i", "z_image_lora_img2img",
         } else (
-            "euler" if profile.compiler in {"qwen_image_t2i", "qwen_image_edit", "flux2_klein"} else "euler_ancestral"
+            "euler" if profile.compiler in {"qwen_image_t2i", "qwen_image_edit", "qwen_image_21", "flux2_klein"} else "euler_ancestral"
         )
         scheduler = "flux2" if profile.compiler == "flux2_klein" else (
             "simple" if profile.compiler in {
                 "z_image_t2i", "z_image_img2img", "z_image_lora_t2i", "z_image_lora_img2img",
-                "qwen_image_t2i", "qwen_image_edit",
+                "qwen_image_t2i", "qwen_image_edit", "qwen_image_21",
             } else "normal"
         )
         return GenerationSpec(
@@ -1293,6 +1331,7 @@ def parse_generation_request(
         raise ApiError(400, "audio_only_unsupported", "H3 does not support an audio-only reference set")
     profile = registry.choose(output_type, mode, references, requested_profile)
     _validate_profile_identity(data, requested_profile, profile)
+    width, height = _resolution(parameters, image=False)
     expected_compiler = "h3_ref" if mode == "ref2va" else "h3_fl"
     if profile.compiler != expected_compiler:
         raise ApiError(400, "profile_mismatch", f"profile does not support resolved mode {mode}")
@@ -1872,6 +1911,55 @@ def compile_qwen_edit_workflow(spec: GenerationSpec, job_id: str) -> dict[str, A
     }
 
 
+def compile_qwen_image_21_workflow(spec: GenerationSpec, job_id: str) -> dict[str, Any]:
+    """Compile the native Qwen-Image 2.1 BF16 text and ordered image-edit paths."""
+
+    if spec.output_type != "image" or len(spec.references) > 10 or any(ref.kind != "image" for ref in spec.references):
+        raise CapabilityError("Qwen-Image 2.1 accepts text and up to ten image references")
+    if spec.width % 32 or spec.height % 32:
+        raise CapabilityError("Qwen-Image 2.1 width and height must be multiples of 32")
+    model, encoder, vae = _flow_image_models(spec)
+    workflow: dict[str, Any] = {
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": model, "weight_dtype": "default"}},
+        "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": encoder, "type": "qwen_image", "device": "default"}},
+        "3": {"class_type": "VAELoader", "inputs": {"vae_name": vae}},
+        "4": {"class_type": "QwenImage21Cache", "inputs": {"model": ["1", 0], "device": "auto", "dtype": "default"}},
+        "5": {"class_type": "TextEncodeQwenImage21", "inputs": {
+            "clip": ["2", 0], "prompt": spec.prompt,
+            "negative_prompt": spec.negative_prompt, "resolution": 0 if spec.references else 1024,
+        }},
+        "7": {"class_type": "KSampler", "inputs": {
+            "model": ["4", 0], "positive": ["5", 0], "negative": ["5", 1],
+            "latent_image": ["5", 2] if spec.references else ["6", 0],
+            "seed": spec.seed, "steps": spec.steps, "cfg": spec.cfg,
+            "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0,
+        }},
+        "8": {"class_type": "VAEDecode", "inputs": {"samples": ["7", 0], "vae": ["3", 0]}},
+        "9": {"class_type": "SaveImage", "inputs": {"images": ["8", 0], "filename_prefix": f"h3-studio/images/{job_id}"}},
+    }
+    if not spec.references:
+        workflow["6"] = {"class_type": "EmptyLatentImage", "inputs": {
+            "width": spec.width, "height": spec.height, "batch_size": 1,
+        }}
+    else:
+        workflow["5"]["inputs"]["vae"] = ["3", 0]
+        for index, reference in enumerate(spec.references, start=1):
+            load_id, scale_id = str(100 + index * 2), str(101 + index * 2)
+            workflow[load_id] = {"class_type": "LoadImage", "inputs": {"image": reference.comfy_path}}
+            if index == 1:
+                workflow[scale_id] = {"class_type": "ImageScale", "inputs": {
+                    "image": [load_id, 0], "upscale_method": "lanczos",
+                    "width": spec.width, "height": spec.height, "crop": "center",
+                }}
+            else:
+                workflow[scale_id] = {"class_type": "ImageScaleToTotalPixels", "inputs": {
+                    "image": [load_id, 0], "upscale_method": "lanczos",
+                    "megapixels": 1.0, "resolution_steps": 1,
+                }}
+            workflow["5"]["inputs"][f"images.image_{index}"] = [scale_id, 0]
+    return workflow
+
+
 def compile_flux2_klein_workflow(spec: GenerationSpec, job_id: str) -> dict[str, Any]:
     """Compile the native ComfyUI FLUX.2 Klein distilled graph.
 
@@ -1954,7 +2042,7 @@ def compile_workflow(
     if spec.compiler not in {
         "h3_fl", "h3_ref", "checkpoint_t2i", "checkpoint_img2img",
         "z_image_t2i", "z_image_img2img", "z_image_lora_t2i", "z_image_lora_img2img",
-        "qwen_image_t2i", "qwen_image_edit", "flux2_klein",
+        "qwen_image_t2i", "qwen_image_edit", "qwen_image_21", "flux2_klein",
     }:
         raise CapabilityError("workflow profile selected an unsupported compiler")
     if spec.compiler in {"h3_fl", "h3_ref"}:
@@ -1969,6 +2057,8 @@ def compile_workflow(
         return compile_qwen_image_workflow(spec, job_id)
     if spec.compiler == "qwen_image_edit":
         return compile_qwen_edit_workflow(spec, job_id)
+    if spec.compiler == "qwen_image_21":
+        return compile_qwen_image_21_workflow(spec, job_id)
     if spec.compiler == "flux2_klein":
         return compile_flux2_klein_workflow(spec, job_id)
     return compile_image_workflow(spec, config, job_id)
@@ -2002,7 +2092,9 @@ def workflow_evidence(workflow: dict[str, Any], spec: GenerationSpec, job_id: st
     motion_context = node_inputs("MiniMaxH3MotionContext")
     compiled_prompt = h3_conditioning.get("prompt")
     if not isinstance(compiled_prompt, str) and spec.output_type == "image":
-        if spec.compiler == "qwen_image_edit":
+        if spec.compiler == "qwen_image_21":
+            compiled_prompt = node_inputs("TextEncodeQwenImage21").get("prompt")
+        elif spec.compiler == "qwen_image_edit":
             compiled_prompt = node_inputs("TextEncodeQwenImageEditPlus").get("prompt")
         else:
             compiled_prompt = node_inputs("CLIPTextEncode").get("text")

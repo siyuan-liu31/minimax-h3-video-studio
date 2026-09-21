@@ -156,6 +156,39 @@ def flux2_klein_object_info(*, installed: bool):
     return info
 
 
+def qwen_image_21_object_info(*, installed: bool, complete_schema: bool = True):
+    info = quality_image_object_info()
+    info.update({name: {} for name in {"ImageScaleToTotalPixels", "QwenImage21Cache", "TextEncodeQwenImage21"}})
+    unets = ["z_image_turbo_bf16.safetensors"]
+    clips = ["qwen_3_4b.safetensors"]
+    vaes = ["ae.safetensors"]
+    if installed:
+        unets.append("qwen_image_2.1_bf16.safetensors")
+        clips.append("qwen3vl_8b_bf16.safetensors")
+        vaes.append("qwen_image_2.1_vae_bf16.safetensors")
+    info["UNETLoader"] = {"input": {"required": {
+        "unet_name": [unets], "weight_dtype": [["default", "fp8_e4m3fn"]],
+    }}}
+    info["CLIPLoader"] = {"input": {"required": {
+        "clip_name": [clips], "type": [["qwen_image"]],
+    }, "optional": {"device": [["default", "cpu"]]}}}
+    info["VAELoader"] = choices("vae_name", vaes)
+    for node, names in {
+        "TextEncodeQwenImage21": ("clip", "prompt", "negative_prompt", "vae", "resolution", "images"),
+        "QwenImage21Cache": ("model", "device", "dtype"),
+        "EmptyLatentImage": ("width", "height", "batch_size"),
+        "ImageScaleToTotalPixels": ("image", "upscale_method", "megapixels", "resolution_steps"),
+    }.items():
+        info[node] = {"input": {"required": {name: ["ANY"] for name in names}}}
+    if not complete_schema:
+        info["TextEncodeQwenImage21"]["input"]["required"].pop("images")
+    info["QwenImage21Cache"]["input"]["required"].update({
+        "device": ["COMBO", {"options": ["auto", "gpu", "cpu"]}],
+        "dtype": ["COMBO", {"options": ["default", "int8", "int4"]}],
+    })
+    return info
+
+
 def z_image_lora_object_info(*, installed: bool, complete_schema: bool = True):
     info = quality_image_object_info()
     info["UNETLoader"] = choices("unet_name", [
@@ -269,6 +302,41 @@ class CapabilityTests(unittest.TestCase):
                 "qwen_3_8b_fp8mixed.safetensors",
                 "full_encoder_small_decoder.safetensors",
             ])
+
+    def test_qwen_image_21_capability_requires_native_nodes_exact_bf16_weights_and_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            client = ComfyClient("http://unused")
+            identifier = "qwen-image-2.1-bf16"
+            with patch.object(client, "object_info", return_value=quality_image_object_info()):
+                missing_nodes = {p["id"]: p for p in client.capabilities(config(Path(directory)))["profiles"]}[identifier]
+            self.assertFalse(missing_nodes["available"])
+            self.assertIn("TextEncodeQwenImage21", missing_nodes["missing_nodes"])
+            self.assertIn("QwenImage21Cache", missing_nodes["missing_nodes"])
+
+            with patch.object(client, "object_info", return_value=qwen_image_21_object_info(installed=False)):
+                missing_weights = {p["id"]: p for p in client.capabilities(config(Path(directory)))["profiles"]}[identifier]
+            self.assertFalse(missing_weights["available"])
+            self.assertEqual(missing_weights["missing_model_files"], [
+                "qwen_image_2.1_bf16.safetensors", "qwen3vl_8b_bf16.safetensors",
+                "qwen_image_2.1_vae_bf16.safetensors",
+            ])
+
+            with patch.object(client, "object_info", return_value=qwen_image_21_object_info(installed=True)):
+                available = {p["id"]: p for p in client.capabilities(config(Path(directory)))["profiles"]}[identifier]
+            self.assertTrue(available["available"])
+            self.assertEqual(available["missing_models"], [])
+
+            with patch.object(client, "object_info", return_value=qwen_image_21_object_info(installed=True, complete_schema=False)):
+                incompatible = {p["id"]: p for p in client.capabilities(config(Path(directory)))["profiles"]}[identifier]
+            self.assertFalse(incompatible["available"])
+            self.assertIn("TextEncodeQwenImage21.inputs=images", incompatible["missing_options"])
+
+            lossy_only = qwen_image_21_object_info(installed=True)
+            lossy_only["QwenImage21Cache"]["input"]["required"]["dtype"] = ["COMBO", {"options": ["int8", "int4"]}]
+            with patch.object(client, "object_info", return_value=lossy_only):
+                unsupported = {p["id"]: p for p in client.capabilities(config(Path(directory)))["profiles"]}[identifier]
+            self.assertFalse(unsupported["available"])
+            self.assertIn("QwenImage21Cache.dtype=default", unsupported["missing_options"])
 
     def test_quality_image_profiles_require_their_exact_models_and_sampling_options(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

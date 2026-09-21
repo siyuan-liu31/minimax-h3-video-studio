@@ -16,8 +16,17 @@ const IMAGE_DIMENSIONS: Record<ImageQuality, Record<ImageAspectRatio, { width: n
   },
 };
 
-export function imageDimensions(quality: ImageQuality, aspectRatio: ImageAspectRatio) {
-  const dimensions = IMAGE_DIMENSIONS[quality]?.[aspectRatio];
+const QWEN_IMAGE_21_2K_DIMENSIONS: Record<ImageAspectRatio, { width: number; height: number }> = {
+  "16:9": { width: 2752, height: 1536 },
+  "9:16": { width: 1536, height: 2752 },
+  "3:4": { width: 1792, height: 2400 },
+  "1:1": { width: 2048, height: 2048 },
+};
+
+export function imageDimensions(quality: ImageQuality, aspectRatio: ImageAspectRatio, qwenImage21 = false) {
+  const dimensions = qwenImage21 && quality === "2K"
+    ? QWEN_IMAGE_21_2K_DIMENSIONS[aspectRatio]
+    : IMAGE_DIMENSIONS[quality]?.[aspectRatio];
   if (!dimensions) throw new Error(`Unsupported image size: ${quality} ${aspectRatio}`);
   return dimensions;
 }

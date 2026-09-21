@@ -129,6 +129,14 @@ MiniMax H3 Video Studio 不执行用户上传的任意 ComfyUI graph，而是生
 
 项目不用一个推测的 ComfyUI 版本号代替运行时能力检测。使用包含 H3 原生节点的当前 ComfyUI，并在每次更新 ComfyUI/KJNodes 后重新检查 `/api/capabilities` 和实际 GPU 任务。
 
+Qwen-Image 2.1 BF16 额外需要 ComfyUI 原生 `TextEncodeQwenImage21` 和
+`QwenImage21Cache`。旧的 ComfyUI 0.34 不包含这两个节点；本项目在 2026-09-22
+核对的 ComfyUI 0.37.0 构建包含它们，同时保留 H3 必需节点。升级时建议先在
+隔离实例验证 `/object_info`、H3 能力和真实图片任务，再切换运行中的 ComfyUI；
+不要用 FP8/INT8 文件冒充 BF16。三份精确文件名、模型来源及非商业使用许可见
+[图片工作流](image-workflows.md)。5090 的 32 GB 显存也不足以据此保证所有
+BF16 组件同时常驻 GPU；允许 ComfyUI 将权重卸载至系统内存，不等同于量化。
+
 H3 视频必需的关键节点包括：
 
 - ComfyUI 原生 H3 节点：`MiniMaxH3ImageToVideo`、`MiniMaxH3ReferenceToVideo`；

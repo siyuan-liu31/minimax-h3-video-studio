@@ -146,7 +146,7 @@ export function promptImageReferenceNumbers(prompt: string): number[] {
   const expressions = [
     /(?:图片|图)\s*#?\s*(\d+)(?!\s*[Kk:]|\d)/gu,
     /(?<![\w])(?:picture|image)\s*#?\s*(\d+)(?!\s*[Kk:]|[\w])/giu,
-    /<(?:picture|image)\s+(\d+)>/giu,
+    /<(?:picture|image)\s*(\d+)>/giu,
   ];
   for (const expression of expressions) {
     for (const match of prompt.matchAll(expression)) numbers.push(Number(match[1]));

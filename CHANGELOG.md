@@ -4,8 +4,11 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-22
+
 ### Added
 
+- 新增 Qwen-Image 2.1 BF16 原生 ComfyUI Profile：统一支持文生图与 1–10 张有序参考图的指令编辑，原生 2K 预设、40 步 / CFG 1 默认值、精确 BF16 主模型/编码器/VAE 能力检测；CLI、Agent operation 和前端共用受控工作流，不静默量化或降低尺寸。
 - YingMusic-SVC 歌曲换声可选保留换声干声与原伴奏，并分别试听/导出最终混音、干声和伴奏；回声与混响可独立开关。前端试听、浏览器下载和 CLI 分轨下载读取同一持久音轨，旧任务与默认成品保持兼容。
 - YingMusic-SVC 歌曲换声开放采样步数、引导强度与随机种子调整，前端、CLI 和 Agent operation 均可设置；每次任务记录实际种子以便复用参数或多次抽卡。
 - 换声工作区新增浏览器话筒录音：用户可录制、试听并明确选择上传为原音频或参考音频，自动转换为现有服务端接受的 WAV；支持取消、权限错误提示和关闭面板时安全释放话筒。
@@ -16,6 +19,7 @@
 
 ### Changed
 
+- README 与图片/CLI 文档覆盖视频、图片、换声及 Agent 直接操作的实际命令，并明确 Qwen-Image 2.1 的非商业 Qwen Research License；前端图片尺寸随 Qwen 2.1 Profile 选择原生 2K 预设，旧 Profile 尺寸不变。
 - 长视频项目可选持久化 `h3.character-migration/v1` recipe 和源/角色 SHA-256；尾窗优先向前扩展为更大的合法重叠以减少或消除补帧，再执行终片精确裁切与音频后处理。旧 recipe、普通生成、`video compose`、现有项目和媒体合同保持不变。
 - H3 Ref2VA 参考合同按官方规格更新为图片最多 9、视频最多 3、音频最多 3、混合文件合计最多 12；CLI、Agent operation schema、画布和长视频规划保持一致。旧 Ref2VA profile 身份仍可用于已有项目和断点恢复。
 

@@ -25,8 +25,7 @@ MAX_BRIEF_LENGTH = 4_000
 MAX_REPLACEMENT_LENGTH = 2_000
 MAX_PROMPT_LENGTH = 12_000
 MAX_REFERENCE_ASSETS = 11
-MIN_SOURCE_SECONDS = 15.0
-MAX_SOURCE_SECONDS = 60.0
+DEFAULT_MAX_PROJECT_BYTES = 32 * 1024 * 1024
 
 
 def capability(*, profiles: list[dict[str, Any]], motion_context: dict[str, Any]) -> dict[str, Any]:
@@ -51,7 +50,7 @@ def capability(*, profiles: list[dict[str, Any]], motion_context: dict[str, Any]
         "preserve_options": list(PRESERVE_OPTIONS),
         "limits": {
             "fps": 24,
-            "source_duration_seconds": [MIN_SOURCE_SECONDS, MAX_SOURCE_SECONDS],
+            "source_duration_seconds": [1 / 24, None],
             "max_reference_assets": MAX_REFERENCE_ASSETS,
             "max_segment_frames": H3_MAX_FRAMES,
         },
@@ -121,14 +120,11 @@ def _output_dimensions(media: dict[str, Any]) -> tuple[str, int, int]:
 
 def _source_frame_count(media: dict[str, Any]) -> int:
     duration = _number(media.get("video_duration") or media.get("duration"), "source duration")
+    if duration <= 0 or not math.isfinite(duration * 24):
+        raise ApiError(400, "replication_duration", "source video duration must be finite and positive")
     frames = int(round(duration * 24.0))
     if frames <= 0:
         raise ApiError(422, "source_duration_missing", "source video has no frames on the 24 fps timeline")
-    if duration < MIN_SOURCE_SECONDS - 0.01 or duration > MAX_SOURCE_SECONDS + 0.01:
-        raise ApiError(
-            400, "replication_duration",
-            f"source video duration must be between {MIN_SOURCE_SECONDS:g} and {MAX_SOURCE_SECONDS:g} seconds",
-        )
     return frames
 
 
@@ -186,33 +182,63 @@ def _normalize_cut_frames(value: Any, source_frames: int) -> list[int]:
     return result
 
 
-def _segment_windows(source_frames: int, cut_frames: list[int]) -> list[tuple[int, int, int]]:
+def _segment_windows(source_frames: int, cut_frames: list[int], overlap: int = 0) -> list[tuple[int, int, int]]:
     """Return source windows and legal generated-frame lengths.
 
-    Every non-terminal source window has a legal H3 length. The terminal
-    window is padded to the next legal length and trimmed once after merge.
+    Windows own disjoint source frames. Continuations generate an additional
+    overlap head, which Motion Context trims before composition. Only the
+    terminal window is padded and trimmed once after merge.
     Scene cuts only influence which legal boundary is selected.
     """
-    count = max(1, math.ceil(source_frames / H3_MAX_FRAMES))
-    while source_frames < count * LEGAL_SEGMENT_FRAMES[0]:
-        count -= 1
+    stride = H3_MAX_FRAMES - overlap
+    count = max(1, (source_frames - overlap + stride - 1) // stride)
     cursor = 0
     windows: list[tuple[int, int, int]] = []
     for index in range(count - 1):
         remaining_segments = count - index - 1
-        minimum = max(LEGAL_SEGMENT_FRAMES[0], source_frames - cursor - remaining_segments * H3_MAX_FRAMES)
-        maximum = min(H3_MAX_FRAMES, source_frames - cursor - remaining_segments * LEGAL_SEGMENT_FRAMES[0])
-        candidates = [frames for frames in LEGAL_SEGMENT_FRAMES if minimum <= frames <= maximum]
+        head = overlap if index else 0
+        minimum = source_frames - cursor - remaining_segments * stride
+        maximum = source_frames - cursor - (remaining_segments - 1) * (LEGAL_SEGMENT_FRAMES[0] - overlap) - 1
+        candidates = [frames - head for frames in LEGAL_SEGMENT_FRAMES if minimum <= frames - head <= maximum]
         target = (source_frames - cursor) / (remaining_segments + 1)
         scene_candidates = [cut - cursor for cut in cut_frames if minimum <= cut - cursor <= maximum]
         choice_pool = [candidate for candidate in scene_candidates if candidate in candidates] or candidates
         length = min(choice_pool, key=lambda frames: (abs(frames - target), -frames))
-        windows.append((cursor, cursor + length, length))
+        windows.append((cursor, cursor + length, length + head))
         cursor += length
     remaining = source_frames - cursor
-    generated = next((frames for frames in LEGAL_SEGMENT_FRAMES if frames >= remaining), H3_MAX_FRAMES)
+    head = overlap if count > 1 else 0
+    generated = next(frames for frames in LEGAL_SEGMENT_FRAMES if frames >= remaining + head)
     windows.append((cursor, source_frames, generated))
     return windows
+
+
+def validate_execution(project: dict[str, Any]) -> None:
+    """Reject stale or edited frame accounting before spending GPU time."""
+    recipe = project.get("recipe")
+    if not isinstance(recipe, dict) or recipe.get("type") != RECIPE_TYPE:
+        return
+    validate_recipe(recipe)
+    segmentation = recipe["segmentation"]
+    windows = segmentation["windows"]
+    overlap = segmentation.get("motion_context_frames", 0)
+    if recipe["continuity"] == "motion_context" and len(windows) > 1 and overlap != 22:
+        raise ApiError(409, "replication_replan_required", "this legacy replication plan omits Motion Context trimming; create a new plan")
+    segments = project.get("segments", [])
+    valid = len(segments) == len(windows)
+    for index, (segment, window) in enumerate(zip(segments, windows)):
+        head = overlap if index else 0
+        expected_mode = recipe["continuity"] if index else "none"
+        source_range = segment.get("source_range", {})
+        parameters = segment.get("request", {}).get("parameters", {})
+        valid = valid and (
+            segment.get("continuation", "none") == expected_mode
+            and source_range == {"asset_id": recipe["source_asset_id"], "start_frame": window["start_frame"] - head, "end_frame": window["end_frame"], "fps": 24.0}
+            and round(float(parameters.get("duration", 0)) * 24) == window["generated_frames"]
+            and (not head or segment.get("motion_context", {}).get("video_frames", 22) == head)
+        )
+    if not valid:
+        raise ApiError(409, "replication_replan_required", "replication segments no longer match the recipe frame ownership; create a new plan")
 
 
 def build_prompt(
@@ -270,8 +296,12 @@ def validate_recipe(value: Any) -> dict[str, Any]:
         raise ApiError(400, "invalid_replication_recipe", "recipe prompt policy mode is unsupported")
     _validate_sha(prompt_policy.get("prompt_sha256"), "recipe prompt sha256")
     segmentation = value.get("segmentation")
-    if not isinstance(segmentation, dict) or set(segmentation) != {"fps", "source_frames", "windows", "composed_frames", "final_trim_frames"}:
+    required = {"fps", "source_frames", "windows", "composed_frames", "final_trim_frames"}
+    if not isinstance(segmentation, dict) or not required <= set(segmentation) or set(segmentation) - required - {"motion_context_frames"}:
         raise ApiError(400, "invalid_replication_recipe", "recipe segmentation fields are incomplete or unsupported")
+    overlap = _integer(segmentation.get("motion_context_frames", 0), "recipe motion_context_frames")
+    if overlap not in {0, 22} or (overlap and value.get("continuity") != "motion_context"):
+        raise ApiError(400, "invalid_replication_recipe", "recipe motion_context_frames is inconsistent")
     fps = _integer(segmentation.get("fps"), "recipe segmentation fps")
     source_frames = _integer(segmentation.get("source_frames"), "recipe segmentation source_frames")
     windows = segmentation.get("windows")
@@ -285,12 +315,13 @@ def validate_recipe(value: Any) -> dict[str, Any]:
         start = _integer(window.get("start_frame"), "recipe window start_frame")
         end = _integer(window.get("end_frame"), "recipe window end_frame")
         generated = _integer(window.get("generated_frames"), "recipe window generated_frames")
-        if start != cursor or end <= start or end > source_frames or generated not in LEGAL_SEGMENT_FRAMES or end - start > generated:
+        contribution = generated - (overlap if index else 0)
+        if start != cursor or end <= start or end > source_frames or generated not in LEGAL_SEGMENT_FRAMES or end - start > contribution:
             raise ApiError(400, "invalid_replication_recipe", f"recipe window {index + 1} is inconsistent")
-        if index < len(windows) - 1 and end - start != generated:
+        if index < len(windows) - 1 and end - start != contribution:
             raise ApiError(400, "invalid_replication_recipe", "only the final recipe window may require padding")
         cursor = end
-        composed += generated
+        composed += contribution
     if cursor != source_frames:
         raise ApiError(400, "invalid_replication_recipe", "recipe windows must cover the complete source")
     if _integer(segmentation.get("composed_frames"), "recipe composed_frames") != composed:
@@ -327,6 +358,7 @@ def plan(
     registry: ProfileRegistry,
     available_profiles: set[str] | None = None,
     motion_context_available: bool = True,
+    max_project_bytes: int = DEFAULT_MAX_PROJECT_BYTES,
 ) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ApiError(400, "invalid_replication", "replication input must be an object")
@@ -422,7 +454,6 @@ def plan(
         raise ApiError(422, "audio_stream_missing", f"audio_policy {audio_policy!r} requires source audio")
     source_frames = _source_frame_count(media)
     cut_frames = _normalize_cut_frames(data.get("cut_frames"), source_frames)
-    windows = _segment_windows(source_frames, cut_frames)
     aspect_ratio, width, height = _output_dimensions(media)
     expert_prompt = _text(data.get("prompt", ""), "prompt", maximum=MAX_PROMPT_LENGTH, preserve=True)
     prompt = build_prompt(
@@ -432,10 +463,18 @@ def plan(
         references=[{"asset_id": item["asset_id"], "role": item["role"]} for item in recipe_references],
         expert_prompt=expert_prompt,
     )
+    # Bound planning work by the configured project payload budget, not seconds.
+    # Every segment repeats the prompt; even its JSON string is a lower bound.
+    segment_count = max(1, (source_frames + H3_MAX_FRAMES - 1) // H3_MAX_FRAMES)
+    minimum_segment_bytes = len(json.dumps(prompt, ensure_ascii=False).encode("utf-8")) + 256
+    if segment_count > max_project_bytes // minimum_segment_bytes:
+        raise ApiError(413, "replication_project_size", "replication plan exceeds the configured project JSON budget; increase H3_STUDIO_MAX_PROJECT_JSON_BYTES or split the source")
+    overlap = 22 if effective_continuity == "motion_context" else 0
+    windows = _segment_windows(source_frames, cut_frames, overlap)
     source_sha = source.get("sha256")
     if not isinstance(source_sha, str) or re.fullmatch(r"[0-9a-f]{64}", source_sha) is None:
         raise ApiError(409, "source_integrity", "source asset has no persisted SHA-256")
-    composed_frames = sum(item[2] for item in windows)
+    composed_frames = sum(item[2] for item in windows) - overlap * (len(windows) - 1)
     recipe = {
         "type": RECIPE_TYPE,
         "version": SCHEMA_VERSION,
@@ -455,6 +494,7 @@ def plan(
             ],
             "composed_frames": composed_frames,
             "final_trim_frames": composed_frames - source_frames,
+            "motion_context_frames": overlap,
         },
         "continuity": effective_continuity,
         "audio_policy": audio_policy,
@@ -490,7 +530,7 @@ def plan(
                 "profile_digest": profile.digest(),
                 "references": references,
             },
-            "source_range": {"asset_id": source_id, "start_frame": start, "end_frame": end, "fps": 24.0},
+            "source_range": {"asset_id": source_id, "start_frame": start - (overlap if index else 0), "end_frame": end, "fps": 24.0},
         }
         if continuation == "motion_context":
             segment["motion_context"] = {"video_frames": 22, "audio_frames": 24}
@@ -506,6 +546,8 @@ def plan(
         },
         "segments": segments,
     }
+    if len(json.dumps(project, ensure_ascii=False).encode("utf-8")) > max_project_bytes:
+        raise ApiError(413, "replication_project_size", "replication plan exceeds the configured project JSON budget; increase H3_STUDIO_MAX_PROJECT_JSON_BYTES or split the source")
     return {
         "version": SCHEMA_VERSION,
         "recipe": recipe,

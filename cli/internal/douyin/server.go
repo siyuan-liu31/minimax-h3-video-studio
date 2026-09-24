@@ -3,6 +3,7 @@ package douyin
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -48,6 +49,8 @@ type APIConfig struct {
 	RateLimit     int
 	MaxConcurrent int
 	Now           func() time.Time
+	StudioOrigin  string
+	AccessToken   string
 }
 
 type API struct {
@@ -59,12 +62,14 @@ type API struct {
 	cancel    context.CancelFunc
 	sem       chan struct{}
 
-	mu      sync.RWMutex
-	tasks   map[string]*Task
-	byURL   map[string]string
-	byToken map[string]string
-	limits  map[string]*rateWindow
-	limit   int
+	mu           sync.RWMutex
+	tasks        map[string]*Task
+	byURL        map[string]string
+	byToken      map[string]string
+	limits       map[string]*rateWindow
+	limit        int
+	studioOrigin string
+	accessToken  string
 }
 
 type rateWindow struct {
@@ -83,6 +88,18 @@ func DefaultDataDir() (string, error) {
 func NewAPI(extractor Extractor, config APIConfig) (*API, error) {
 	if extractor == nil {
 		return nil, errors.New("extractor is required")
+	}
+	if config.StudioOrigin != "" {
+		if err := validateStudioOrigin(config.StudioOrigin); err != nil {
+			return nil, err
+		}
+		if config.AccessToken == "" {
+			var err error
+			config.AccessToken, err = randomHex(24)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	if config.DataDir == "" {
 		var err error
@@ -116,6 +133,7 @@ func NewAPI(extractor Extractor, config APIConfig) (*API, error) {
 		ctx: ctx, cancel: cancel, sem: make(chan struct{}, config.MaxConcurrent),
 		tasks: map[string]*Task{}, byURL: map[string]string{}, byToken: map[string]string{},
 		limits: map[string]*rateWindow{}, limit: config.RateLimit,
+		studioOrigin: config.StudioOrigin, accessToken: config.AccessToken,
 	}
 	go api.cleanupLoop()
 	return api, nil
@@ -127,11 +145,73 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", a.health)
 	mux.HandleFunc("POST /api/parse", a.parse)
+	mux.HandleFunc("POST /api/inspect", a.inspect)
 	mux.HandleFunc("GET /api/tasks/{id}", a.getTask)
 	mux.HandleFunc("GET /api/download/{token}", a.download)
 	mux.HandleFunc("GET /openapi.json", a.openapi)
 	mux.HandleFunc("GET /docs", a.docs)
-	return securityHeaders(mux)
+	return securityHeaders(a.bridgeAccess(mux))
+}
+
+func validateStudioOrigin(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Port() == "" || !loopbackHost(parsed.Host) {
+		return errors.New("studio origin must be an exact loopback HTTP origin with a port")
+	}
+	return nil
+}
+
+func loopbackHost(hostport string) bool {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return false
+	}
+	return host == "localhost" || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback())
+}
+
+func (a *API) bridgeAccess(next http.Handler) http.Handler {
+	if a.studioOrigin == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if !loopbackHost(request.Host) {
+			writeAPIError(w, http.StatusForbidden, "invalid_host", "local bridge requires a loopback host")
+			return
+		}
+		origin := request.Header.Get("Origin")
+		if origin != "" && origin != a.studioOrigin {
+			writeAPIError(w, http.StatusForbidden, "invalid_origin", "origin is not allowed")
+			return
+		}
+		if origin == a.studioOrigin {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
+		if request.Method == http.MethodOptions {
+			method := request.Header.Get("Access-Control-Request-Method")
+			if origin != a.studioOrigin || (method != http.MethodGet && method != http.MethodPost) {
+				writeAPIError(w, http.StatusForbidden, "invalid_preflight", "preflight is not allowed")
+				return
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-H3-Douyin-Token")
+			if request.Header.Get("Access-Control-Request-Private-Network") == "true" {
+				w.Header().Set("Access-Control-Allow-Private-Network", "true")
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if request.Method == http.MethodGet && request.URL.Path == "/health" && origin == a.studioOrigin {
+			next.ServeHTTP(w, request)
+			return
+		}
+		provided := request.Header.Get("X-H3-Douyin-Token")
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(a.accessToken)) != 1 {
+			writeAPIError(w, http.StatusUnauthorized, "invalid_token", "local bridge token is invalid")
+			return
+		}
+		next.ServeHTTP(w, request)
+	})
 }
 
 func (a *API) Serve(ctx context.Context, listener net.Listener) error {
@@ -170,8 +250,12 @@ func ValidateListenAddress(value string) error {
 	return nil
 }
 
-func (a *API) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "api_version": APIVersion})
+func (a *API) health(w http.ResponseWriter, request *http.Request) {
+	result := map[string]any{"status": "ok", "api_version": APIVersion}
+	if a.studioOrigin != "" && request.Header.Get("Origin") == a.studioOrigin {
+		result["bridge_token"] = a.accessToken
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (a *API) parse(w http.ResponseWriter, request *http.Request) {
@@ -179,24 +263,8 @@ func (a *API) parse(w http.ResponseWriter, request *http.Request) {
 		writeAPIError(w, http.StatusTooManyRequests, "rate_limited", "too many parse requests")
 		return
 	}
-	request.Body = http.MaxBytesReader(w, request.Body, 64<<10)
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	var body struct {
-		Text string `json:"text"`
-	}
-	if err := decoder.Decode(&body); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request", "body must be JSON with a text field")
-		return
-	}
-	if err := ensureJSONEOF(decoder); err != nil {
-		writeAPIError(w, http.StatusBadRequest, "invalid_request", "body must contain one JSON object")
-		return
-	}
-	link, err := ExtractURL(body.Text)
-	if err != nil {
-		typed := MapError(err)
-		writeAPIError(w, http.StatusBadRequest, typed.Code, typed.Message)
+	link, ok := readLink(w, request)
+	if !ok {
 		return
 	}
 	task, reused, err := a.start(link)
@@ -209,6 +277,54 @@ func (a *API) parse(w http.ResponseWriter, request *http.Request) {
 		status = http.StatusOK
 	}
 	writeJSON(w, status, map[string]any{"task": publicTask(task), "reused": reused})
+}
+
+func (a *API) inspect(w http.ResponseWriter, request *http.Request) {
+	if !a.allow(request) {
+		writeAPIError(w, http.StatusTooManyRequests, "rate_limited", "too many parse requests")
+		return
+	}
+	link, ok := readLink(w, request)
+	if !ok {
+		return
+	}
+	select {
+	case a.sem <- struct{}{}:
+		defer func() { <-a.sem }()
+	case <-request.Context().Done():
+		return
+	}
+	metadata, err := a.extractor.Parse(request.Context(), link)
+	if err != nil {
+		typed := MapError(err)
+		writeAPIError(w, http.StatusBadGateway, typed.Code, typed.Message)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"metadata": metadata})
+}
+
+func readLink(w http.ResponseWriter, request *http.Request) (string, bool) {
+	request.Body = http.MaxBytesReader(w, request.Body, 64<<10)
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := decoder.Decode(&body); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "body must be JSON with a text field")
+		return "", false
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_request", "body must contain one JSON object")
+		return "", false
+	}
+	link, err := ExtractURL(body.Text)
+	if err != nil {
+		typed := MapError(err)
+		writeAPIError(w, http.StatusBadRequest, typed.Code, typed.Message)
+		return "", false
+	}
+	return link, true
 }
 
 func (a *API) getTask(w http.ResponseWriter, request *http.Request) {
@@ -321,7 +437,11 @@ func (a *API) failTask(id string, err error) {
 	typed := MapError(err)
 	a.updateTask(id, func(task *Task) {
 		now := a.now()
-		expiresAt := now.Add(a.ttl)
+		failureTTL := a.ttl
+		if typed.Retryable && failureTTL > time.Minute {
+			failureTTL = time.Minute
+		}
+		expiresAt := now.Add(failureTTL)
 		task.Status, task.UpdatedAt, task.ExpiresAt = "failed", now, &expiresAt
 		task.Error = &TaskError{Code: typed.Code, Message: typed.Message, Retryable: typed.Retryable}
 	})
@@ -431,6 +551,16 @@ func openAPISpec() map[string]any {
 					"429": response("Rate limited", "#/components/schemas/ErrorResponse"),
 				},
 			}},
+			"/api/inspect": map[string]any{"post": map[string]any{
+				"summary":     "Inspect a Douyin URL without downloading media",
+				"requestBody": map[string]any{"required": true, "content": jsonContent("#/components/schemas/ParseRequest")},
+				"responses": map[string]any{
+					"200": response("Parsed metadata", "#/components/schemas/InspectResponse"),
+					"400": response("Invalid request", "#/components/schemas/ErrorResponse"),
+					"429": response("Rate limited", "#/components/schemas/ErrorResponse"),
+					"502": response("Extractor error", "#/components/schemas/ErrorResponse"),
+				},
+			}},
 			"/api/tasks/{id}": map[string]any{"get": map[string]any{
 				"summary":    "Get task status",
 				"parameters": []any{map[string]any{"name": "id", "in": "path", "required": true, "schema": map[string]any{"type": "string"}}},
@@ -457,6 +587,10 @@ func openAPISpec() map[string]any {
 			"ParseResponse": map[string]any{
 				"type": "object", "required": []string{"task", "reused"},
 				"properties": map[string]any{"task": map[string]any{"$ref": "#/components/schemas/Task"}, "reused": map[string]any{"type": "boolean"}},
+			},
+			"InspectResponse": map[string]any{
+				"type": "object", "required": []string{"metadata"},
+				"properties": map[string]any{"metadata": map[string]any{"$ref": "#/components/schemas/Metadata"}},
 			},
 			"TaskResponse": map[string]any{
 				"type": "object", "required": []string{"task"},
@@ -496,7 +630,8 @@ func openAPISpec() map[string]any {
 			},
 			"HealthResponse": map[string]any{
 				"type": "object", "required": []string{"status", "api_version"},
-				"properties": map[string]any{"status": map[string]any{"type": "string", "const": "ok"}, "api_version": map[string]any{"type": "string"}},
+				"properties": map[string]any{"status": map[string]any{"type": "string", "const": "ok"}, "api_version": map[string]any{"type": "string"},
+					"bridge_token": map[string]any{"type": "string", "description": "Only returned to the configured Studio Origin in bridge mode"}},
 			},
 		},
 		},

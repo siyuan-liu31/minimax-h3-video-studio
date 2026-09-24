@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from copy import deepcopy
 
 from server.errors import ApiError
 from server.profiles import DEFAULT_REGISTRY
-from server.replication import SCHEMA_VERSION, build_prompt, plan, validate_recipe
+from server.replication import SCHEMA_VERSION, build_prompt, plan, validate_recipe, validate_execution, _segment_windows
 
 
 SOURCE_ID = "a" * 32
@@ -60,7 +61,7 @@ class ReplicationPlannerTests(unittest.TestCase):
         result = self.planning()
         recipe = result["recipe"]
         windows = recipe["segmentation"]["windows"]
-        self.assertEqual(result["summary"]["segment_count"], 4)
+        self.assertEqual(result["summary"]["segment_count"], 5)
         self.assertEqual(windows[0]["start_frame"], 0)
         self.assertEqual(windows[-1]["end_frame"], 1440)
         self.assertEqual(recipe["output"]["frames"], 1440)
@@ -72,6 +73,91 @@ class ReplicationPlannerTests(unittest.TestCase):
         self.assertEqual(result["project"]["segments"][1]["motion_context"]["video_frames"], 22)
         self.assertEqual(recipe["output"]["aspect_ratio"], "9:16")
         self.assertEqual(validate_recipe(recipe), recipe)
+
+    def test_short_and_long_sources_cover_every_frame_with_legal_segments(self):
+        for duration in (1 / 24, 0.1, 1.0, 5.0, 14.9, 60.1, 600.0, 3600.0, 18000.0):
+            with self.subTest(duration=duration):
+                result = self.planning(source=asset(SOURCE_ID, "video", duration=duration))
+                recipe = result["recipe"]
+                self.assertEqual(validate_recipe(recipe), recipe)
+                self.assertEqual(recipe["output"]["frames"], round(duration * 24))
+                self.assertEqual(recipe["segmentation"]["windows"][-1]["end_frame"], round(duration * 24))
+                self.assertLess(recipe["segmentation"]["final_trim_frames"], 124)
+                if duration < 5:
+                    self.assertEqual(result["summary"]["segment_count"], 1)
+                    self.assertEqual(recipe["segmentation"]["windows"][0]["generated_frames"], 124)
+                if duration == 18000:
+                    self.assertGreater(result["summary"]["segment_count"], 1000)
+
+    def test_partition_boundaries_have_no_gaps_or_illegal_padding(self):
+        for source_frames in range(1, 2500):
+            windows = _segment_windows(source_frames, [])
+            cursor = 0
+            for index, (start, end, generated) in enumerate(windows):
+                self.assertEqual(start, cursor)
+                self.assertIn(generated, range(124, 363, 17))
+                self.assertLessEqual(end - start, generated)
+                if index < len(windows) - 1:
+                    self.assertEqual(end - start, generated)
+                cursor = end
+            self.assertEqual(cursor, source_frames)
+
+    def test_motion_context_composition_owns_every_source_frame_after_trim(self):
+        for frames in list(range(1, 1500)) + [1560, 14400, 86400]:
+            windows = _segment_windows(frames, [], 22)
+            cursor = 0
+            composed = 0
+            for index, (start, end, generated) in enumerate(windows):
+                head = 22 if index else 0
+                self.assertEqual(start, cursor)
+                self.assertIn(generated, range(124, 363, 17))
+                self.assertLessEqual(end - start, generated - head)
+                if index < len(windows) - 1:
+                    self.assertEqual(end - start, generated - head)
+                self.assertGreaterEqual(start - head, 0)
+                cursor = end
+                composed += generated - head
+            self.assertEqual(cursor, frames)
+            self.assertGreaterEqual(composed, frames)
+            self.assertLess(composed - frames, 124)
+
+    def test_motion_plan_references_preceding_source_frames_and_rejects_stale_execution(self):
+        result = self.planning(source=asset(SOURCE_ID, "video", duration=16))
+        project = result["project"]
+        validate_execution(project)
+        windows = result["recipe"]["segmentation"]["windows"]
+        self.assertEqual(project["segments"][1]["source_range"]["start_frame"], windows[1]["start_frame"] - 22)
+        composed = sum(round(s["request"]["parameters"]["duration"] * 24) - (22 if i else 0) for i, s in enumerate(project["segments"]))
+        self.assertEqual(composed - result["recipe"]["segmentation"]["final_trim_frames"], 384)
+        for change in ("duration", "source", "continuation"):
+            changed = deepcopy(project)
+            segment = changed["segments"][1]
+            if change == "duration": segment["request"]["parameters"]["duration"] += 17 / 24
+            if change == "source": segment["source_range"]["start_frame"] += 22
+            if change == "continuation": segment["continuation"] = "none"
+            with self.subTest(change=change), self.assertRaises(ApiError) as raised:
+                validate_execution(changed)
+            self.assertEqual(raised.exception.code, "replication_replan_required")
+        legacy = self.planning(spec(continuity="none"), source=asset(SOURCE_ID, "video", duration=16))["project"]
+        legacy["recipe"]["continuity"] = "motion_context"
+        legacy["recipe"]["segmentation"].pop("motion_context_frames")
+        self.assertEqual(validate_recipe(legacy["recipe"]), legacy["recipe"])
+        with self.assertRaises(ApiError) as raised:
+            validate_execution(legacy)
+        self.assertEqual(raised.exception.code, "replication_replan_required")
+
+    def test_resource_budget_rejects_unrepresentable_plans_before_allocating(self):
+        for duration in (3600, 1e100):
+            with self.subTest(duration=duration), self.assertRaises(ApiError) as raised:
+                plan(spec(), source=asset(SOURCE_ID, "video", duration=duration),
+                     reference_assets=[asset(IMAGE_ID, "image")], registry=DEFAULT_REGISTRY,
+                     max_project_bytes=1024)
+            self.assertEqual(raised.exception.code, "replication_project_size")
+
+    def test_invalid_source_durations_are_rejected(self):
+        for duration in (-1, 0, 0.001, float("nan"), float("inf"), 1e308):
+            with self.subTest(duration=duration), self.assertRaises(ApiError):
+                self.planning(source=asset(SOURCE_ID, "video", duration=duration))
 
     def test_scene_cut_is_used_when_it_is_a_legal_balanced_boundary(self):
         result = self.planning(
@@ -99,7 +185,7 @@ class ReplicationPlannerTests(unittest.TestCase):
 
     def test_validation_rejects_duration_audio_references_and_explicit_motion(self):
         cases = [
-            (spec(), asset(SOURCE_ID, "video", duration=14.9), True, "between 15 and 60"),
+            (spec(), asset(SOURCE_ID, "video", duration=0), True, "positive"),
             (spec(audio_policy="copy-source"), asset(SOURCE_ID, "video", audio=False), True, "requires source audio"),
             (spec(references=[{"asset_id": SOURCE_ID, "role": "duplicate"}]), None, True, "cannot repeat"),
             (spec(continuity="motion_context"), None, False, "unavailable"),

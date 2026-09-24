@@ -89,6 +89,20 @@ returns the absolute file path, size and SHA-256 digest. Use this capability
 only for media you own or are authorized to download; it does not remove a logo
 that is already embedded in the video pixels.
 
+If Douyin reports that fresh cookies are needed, first stop repeated attempts
+and check whether the video plays in the same Chrome profile. That error alone
+does **not** prove the login expired: yt-dlp tracks cases where Douyin playback
+works but extraction still fails ([upstream issue](https://github.com/yt-dlp/yt-dlp/issues/9667)).
+After confirming playback, try once later. If extraction remains blocked, upload
+an authorized local video through Studio instead. Do not share browser cookies
+or use repeated automated retries as a recovery method.
+CLI and loopback task errors keep stable diagnostic codes: `cookie_refresh_required`
+means the request was rejected, not that the browser login is definitely expired;
+`access_restricted` identifies HTTP 403 and `rate_limited` identifies HTTP 429.
+Studio displays the failing stage, a plain-language explanation and the next
+step. It clears the previous progress message when a local import fails, so an
+old “downloading” status is not mistaken for an active task.
+
 ### Loopback Swagger API
 
 Run the same extractor as a local asynchronous API:
@@ -104,6 +118,7 @@ open http://127.0.0.1:8765/docs
 The server exposes:
 
 - `POST /api/parse` with `{"text":"share text or URL"}`;
+- `POST /api/inspect` with the same body to return metadata without downloading;
 - `GET /api/tasks/{id}` for `pending`, `running`, `completed` or `failed`;
 - `GET /api/download/{token}` for an expiring, Range-capable media download;
 - `GET /openapi.json`, `GET /docs` and `GET /health`.
@@ -111,11 +126,46 @@ The server exposes:
 It is deliberately restricted to loopback addresses. The default cache TTL is
 one hour, the default request limit is 30 submissions per client IP per minute,
 and at most two extractor tasks run concurrently. Duplicate URLs reuse a live
-or unexpired task. Cached files live under the platform user cache directory
+or unexpired task. Retryable failures are cached for at most one minute so a
+refreshed browser session can be tried later without immediate request loops.
+Cached files live under the platform user cache directory
 (`h3ctl/douyin`) unless `--data-dir` is set; expired managed files are removed.
 Task responses never reveal their server-side filesystem path. Swagger UI loads
 its static assets from the public `unpkg.com` CDN, while the API and OpenAPI
 document themselves remain local.
+
+### Studio browser import on macOS
+
+For a Studio opened through the local SSH tunnel at `http://127.0.0.1:16020`,
+start the local helper on the Mac running Chrome:
+
+```bash
+./scripts/douyin-helper-macos.sh install
+./scripts/douyin-helper-macos.sh status
+```
+
+The installer builds the current `h3ctl` and uses an existing `yt-dlp` or
+installs it in a user-local environment when `uv` is available. It starts a
+session helper on `127.0.0.1:8765`, allowing only the exact loopback Studio
+origin. Run `install` again after logging into macOS. Studio discovers it
+automatically; its Douyin
+drawer uses local Chrome cookies for **Parse** and **Import**, then uploads only
+video bytes through the existing asset API. The browser never receives the
+Cookie database or account credentials. The helper does not read Chrome cookies
+until the user requests a parse or import. The allowed origin can be changed
+at install time with `H3_STUDIO_LOCAL_ORIGIN=http://127.0.0.1:PORT`.
+
+macOS denies a normal LaunchAgent access to Chrome's Cookie database, even
+when the same CLI can read it from the user's terminal. For automatic startup
+at login, first grant Full Disk Access to the installed `h3ctl` and `yt-dlp`
+executables in macOS System Settings, then run
+`./scripts/douyin-helper-macos.sh install-login`. Without that one-time system
+permission, use the session helper above. Neither mode exports cookies to the
+development machine.
+
+To stop and remove it, run `./scripts/douyin-helper-macos.sh uninstall`.
+This integration uses third-party automated requests and may trigger Douyin
+account restrictions. Use it only for videos you are allowed to download.
 
 ## Resource locators and transfers
 
@@ -238,11 +288,12 @@ rules.
 
 ## Replication workshop
 
-`video replicate` turns a 15–60 second source into a durable native H3
+`video replicate` turns a source of any positive duration (at least one 24 FPS frame) into a durable native H3
 project. It preserves selected timing/motion/camera properties, applies the
 requested replacements and optional image references, splits the source into
 legal `17k+5` H3 windows, then merges and trims the result to the exact source
 frame count:
+There is no fixed source-duration limit. Short sources are padded only in private model inputs and trimmed back after merging. Upload size, disk space, and `H3_STUDIO_MAX_PROJECT_JSON_BYTES` still apply; planning reports an explicit capacity error before generation if the project would exceed its JSON budget.
 
 ```bash
 h3ctl video replicate \
@@ -260,6 +311,52 @@ project, then returns its ID for recovery through `h3ctl project`. Specs use
 the same fields as Agent operations `video.replication.plan` and
 `video.replication.produce`. Douyin fetching remains local and separate: run
 `h3ctl douyin download URL` first, then pass the downloaded file as `--source`.
+
+### Reviewable CLI workflow
+
+Use `replication` for work that needs human or Agent review between planning and generation:
+
+```bash
+# Resolves/uploads inputs, but does not create or run a project.
+h3ctl replication plan --source ./source.mp4 --brief "Keep motion; replace the product" --json > plan.json
+# Accepts the plan, an exported project spec, or either inside the CLI JSON envelope.
+h3ctl replication create --plan plan.json --json
+h3ctl replication list --json
+h3ctl replication inspect PROJECT_ID --json
+# Prompt file contents are submitted without rewriting. Save the timestamp returned by inspect
+# when preparing edits asynchronously, then pass it to protect against concurrent changes.
+h3ctl replication edit-segment PROJECT_ID --segment SEGMENT_ID --prompt-file shot.txt \
+  --expected-updated-at 1790000000.125
+h3ctl replication run PROJECT_ID
+h3ctl replication wait PROJECT_ID --timeout 0
+h3ctl replication resume PROJECT_ID --to ./final.mp4
+h3ctl replication export PROJECT_ID --json > reviewed-project.json
+```
+
+`create` saves a draft without consuming generation resources. `edit-segment` accepts
+`--prompt-file`, `--steps`, and/or `--seed`; changing a segment invalidates its result,
+dependent continuation segments, and the merged output. Independent completed segments
+remain reusable. If `--expected-updated-at` is omitted, the CLI reads the current version
+immediately before patching; pass the version from your original `inspect` for edits prepared
+earlier. A stale version returns HTTP 409 `project_changed`. Active projects cannot be edited.
+
+`resume` uses the existing project ID, runs unfinished segments, waits, merges if needed,
+and downloads atomically. A completed merged result is downloaded directly. It never creates
+a replacement project. Ctrl-C stops local waiting only; `stop PROJECT_ID` requests server-side
+stop. `run`, `wait`, `stop`, `rerun --segment`, `merge`, and `download` use the shared project
+commands and their existing flags. Export omits execution results; importing it creates a
+new draft using assets on the same server, not a portable media archive.
+
+Agent operations are `video.replication.create`, `.inspect`, `.export`, `.edit_segment`, and
+`.resume`, in addition to `.plan` and `.produce`. Discover exact input contracts with
+`h3ctl operation schema video.replication.edit_segment --json`. The edit operation always
+requires `expected_updated_at`. Generic execution primitives remain `project.*`.
+
+The browser detects scene cuts before planning; CLI plans use legal balanced windows unless
+`cut_frames` is supplied in `--spec`. Neither route performs semantic video understanding,
+transcription, word-level captions, or a Hypit-style composition renderer. The recipe's
+`prompt_policy.prompt_sha256` records the initial compiled prompt; edited segment requests
+are the authoritative prompts used for execution. See [workflow design](replication-workflow.md).
 
 ## Unlimited-duration character migration
 
@@ -469,3 +566,52 @@ h3ctl operation run media.frame --input request.json --json
 ## Current API boundaries
 
 Commands map only to real server endpoints. Asset rename/folder/pin, job lifecycle, derivations, and long-video projects are supported. Operations for which the Python API has no contract return `unsupported`; the CLI never reports fabricated success. Shell completion and the resumable workflow runner are intentionally reserved for a later release.
+
+## Douyin imports in Studio
+
+The Studio sidebar **Douyin / 抖音** parses share text, downloads on the server,
+imports the video into the common asset library, and opens it in the replication
+workshop. Tasks persist across page reloads. Interrupted server tasks become
+retryable failures; finished assets remain available. Quality presets are best,
+up to 1080p, and up to 720p. Cancel is available until asset import begins.
+
+```bash
+h3ctl douyin capabilities
+h3ctl douyin inspect 'https://v.douyin.com/...' --json
+h3ctl douyin import 'https://v.douyin.com/...' --quality 1080 --detach --json
+h3ctl douyin list --json
+h3ctl douyin status TASK --json
+h3ctl douyin wait TASK --timeout 10m --json
+h3ctl douyin cancel TASK --json
+h3ctl douyin retry TASK --json
+# Local browser session: download locally, then upload to selected Studio context.
+h3ctl douyin import 'https://v.douyin.com/...' --local --cookies-from-browser chrome
+```
+
+These new commands use the selected direct/SSH context. Existing `parse`,
+`download`, and `serve` retain their local-only behavior. `import --local` reads
+browser cookies only when explicitly selected and uploads video bytes, not the
+cookie database. It currently uses best quality and waits for upload completion.
+`Ctrl-C` during remote waiting does not cancel the server task. Use `cancel`.
+`--request-id` gives remote submissions a stable idempotency key.
+
+Agent operations: `douyin.submit` (`text`, optional `mode=parse|download`,
+`quality=best|1080|720`, `request_id`), `douyin.capabilities`, `douyin.list`,
+`douyin.get`, `douyin.wait`, `douyin.cancel`, and `douyin.retry`.
+
+Server routes: `GET /api/douyin/capabilities`, `GET/POST /api/douyin/tasks`,
+`GET /api/douyin/tasks/:id`, `POST /api/douyin/tasks/:id/cancel|retry` (empty JSON).
+All use existing API authentication and browser Origin checks. Receipts expose
+metadata and an asset ID, never signed media URLs, cookie contents or disk paths.
+At most two yt-dlp processes run concurrently with eight active/queued tasks.
+The task list returns the newest 100 receipts. Downloads are size/time bounded;
+assets use existing byte deduplication, validation, 24 FPS normalization and quota.
+
+Install yt-dlp and FFmpeg on the Studio server. `H3_STUDIO_YTDLP` selects the
+executable. `H3_STUDIO_DOUYIN_COOKIES` optionally points to an operator-managed
+Netscape cookie file outside the release directory (restrict access to its owner).
+Each task uses a disposable private copy. A rejected request may be reported as
+`cookie_refresh_required`, `access_restricted` (HTTP 403) or `rate_limited`
+(HTTP 429). These codes do not prove the login expired; check browser playback
+and avoid consecutive retries. Neither site support nor cookie configuration
+guarantees that Douyin will accept a request.

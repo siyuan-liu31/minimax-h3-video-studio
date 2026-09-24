@@ -20,6 +20,10 @@ export type ReplicationPlanRequest = {
   audio_policy: ReplicationAudioPolicy;
   continuity: ReplicationContinuity;
   cut_frames?: number[];
+  profile_id?: string;
+  profile_version?: string;
+  profile_digest?: string;
+  steps?: number;
 };
 export type ReplicationPlan = {
   version: typeof REPLICATION_RECIPE_VERSION;
@@ -70,4 +74,31 @@ export async function planReplication(request: ReplicationPlanRequest): Promise<
     || typeof result.prompt !== "string"
   ) throw new Error("服务端返回的复刻方案版本或结构无效");
   return result as ReplicationPlan;
+}
+
+export function isReplicationProject(project: { recipe?: Record<string, unknown> }): boolean {
+  return project.recipe?.type === "replication" && project.recipe?.version === REPLICATION_RECIPE_VERSION;
+}
+
+export function replicationIsActive(project: { status: string } | undefined): boolean {
+  return Boolean(project && ["running", "stopping", "merging", "submitting", "queued"].includes(project.status));
+}
+
+export function replicationEditImpact(segments: Array<{ id: string; continuation: string }>, segmentId: string): string[] {
+  const index = segments.findIndex((segment) => segment.id === segmentId);
+  if (index < 0) return [];
+  const affected = [segmentId];
+  for (let cursor = index + 1; cursor < segments.length && segments[cursor].continuation !== "none"; cursor++) {
+    affected.push(segments[cursor].id);
+  }
+  return affected;
+}
+
+export function replicationStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    draft: "草稿", pending: "待生成", queued: "排队中", submitting: "提交中", running: "生成中",
+    stopping: "正在停止", stopped: "已停止", canceled: "已取消", completed: "已完成",
+    partial: "部分完成", stale: "需要重跑", failed: "失败", merging: "正在合并", merged: "成片完成",
+  };
+  return labels[status] ?? status;
 }

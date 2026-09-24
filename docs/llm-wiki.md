@@ -1,6 +1,6 @@
 # MiniMax H3 Video Studio LLM Wiki
 
-> 最后校准：2026-09-23（Asia/Shanghai，本地源码与全套测试；已核对开发机 ComfyUI 0.37 的 Qwen-Image 2.1 原生节点与 H3 必需节点）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
+> 最后校准：2026-09-25（Asia/Shanghai，复核抖音本机/开发机失败回执、前端失败反馈和当前 16020 部署；此前 2026-09-24 校准的复刻容量及 GPU 链路仍以对应源码和测试为准）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
 
 ## 1. 先看这里
 
@@ -58,7 +58,7 @@ app/
   studio-video-mode.ts         Director 模式合同与标签映射
   video-project.ts             长视频纯数据模型、校验和运行计划
   replication-project.ts       复刻工坊前端版本合同与规划 API
-  replication-workshop.tsx     15–60 秒复刻表单、计划、执行与成片
+  replication-workshop.tsx     不限总时长复刻表单、计划、执行与成片
   video-timeline.tsx           长视频抽屉编排
   video-director-workspace.tsx 监视器、时间线与分镜编辑组件
   api/[...path]/route.ts        开发/RSC 环境的 API 代理兼容入口
@@ -110,7 +110,40 @@ server/tests/                  Python API、工作流、存储与长视频测试
 CHANGELOG.md                   用户可见版本变化；未部署内容放在 Unreleased
 ```
 
-### 2.1 本地抖音工具边界
+### 2.1 抖音下载与资产导入
+
+`server/douyin.py::DouyinTasks` 提供持久化解析/下载任务，存储在
+`metadata/douyin-tasks`；两路并发、最多八个活跃/排队任务、单任务十分钟，
+下载临时目录在终态清理。重启把中断任务标为可重试失败。下载成功复用
+AssetStore 的签名/媒体校验、24 FPS 副本、SHA-256 去重与存储配额，返回共享资产。
+`GET /api/douyin/capabilities`、`GET/POST /api/douyin/tasks`、
+`GET /api/douyin/tasks/:id`、`POST .../cancel|retry` 共用认证与 Origin 边界。
+请求只接受 `text/mode/quality/request_id`；Cookie/路径/任意 yt-dlp 参数不接受客户端输入。
+`H3_STUDIO_YTDLP` 选择可执行文件，`H3_STUDIO_DOUYIN_COOKIES` 可指定服务端私有
+Cookie 文件，每个任务只用临时副本；回执不暴露 Cookie、签名媒体 URL 或磁盘路径。
+
+前端 `app/douyin-studio.tsx` 与 `app/douyin-api.ts` 提供侧栏入口、解析、清晰度选择、
+任务轮询恢复、取消/重试、惰性视频预览和复刻跳转。`initialSourceId` 让复刻工坊从指定
+资产创建新方案，避免恢复上次草稿抢占下载来源。所有完成资产合并到共用资产库。
+本机 Chrome 会话路径由 `scripts/douyin-helper-macos.sh install` 在当前用户会话启动；
+macOS 普通 LaunchAgent 无权读取 Chrome Cookie 数据库。需登录自启时，先给安装后的
+`h3ctl` 和 `yt-dlp` 一次性授予完整磁盘访问权限，再用 `install-login` 注册 LaunchAgent。
+`h3ctl douyin serve --studio-origin http://127.0.0.1:16020` 监听本机 8765，
+`app/douyin-local-bridge.ts` 自动发现、解析或下载缓存视频，然后通过同源 `/api/assets`
+上传视频字节。浏览器与开发机不接收 Cookie；只有用户点击解析/导入时，
+本机 yt-dlp 才读取浏览器会话。桥接 API 校验 loopback Host、精确 Origin、
+预检与进程级临时令牌；其他网页不能发起受保护的下载请求。
+可重试的抖音解析/下载失败只缓存至多 1 分钟，避免立即重复请求和一小时内无法恢复；
+本机与开发机对 HTTP 403、HTTP 429 分别给出 `access_restricted`、`rate_limited`，
+保留既有 `cookie_refresh_required` 兼容码。`app/douyin-feedback.ts` 统一把错误码、来源与
+失败阶段转换为前端失败卡片，清除本机导入旧进度，并给出下一步；
+这些错误不证明 Cookie 过期，浏览器可播而提取失败也可能是抖音与 yt-dlp 的兼容问题。
+持续失败时可用有权使用的本地文件上传资产库，不要求用户导出 Cookie。
+CLI `douyin import/inspect/capabilities/list/status/wait/cancel/retry` 使用当前 H3 context；
+`import --local --cookies-from-browser BROWSER` 在本机下载后上传，Cookie 不发往服务器。
+Agent operations 为 `douyin.submit/capabilities/list/get/wait/cancel/retry`。
+
+### 2.2 兼容的本地抖音工具边界
 
 `h3ctl douyin parse|download|serve` 只在运行 CLI 的本机执行，不创建 H3
 HTTP 客户端，也不打开当前 SSH context。`internal/douyin` 是受控的 `yt-dlp`
@@ -365,7 +398,7 @@ $H3_STUDIO_DATA_ROOT/
 - `previous_video`：创建不超过 15 秒的派生视频参考
 - `motion_context`：使用锁定的外部 Motion Context 节点复用上一段视频/音频 latent，对新段自动裁头，且不占用像素参考槽
 - 人物迁移：持久化 `h3.character-migration/v1` recipe，把源人物与目标角色绑定为 `<Subject 1>` / `<Subject 2>`，以 `17k+5` 合法帧窗和 5/22/39/56 帧重叠构造项目。首段独立，后续段 Motion Context 音画窗口一致；尾窗先向前回填并选取可覆盖余量的最大合法重叠，只有短于最小窗口或不足一个 17 帧网格的余量才在私有模型输入补帧，最终产物回到源 24 FPS 帧数
-- 复刻工坊：持久化 `h3.replication/v1` recipe，限定来源视频 15–60 秒，把复刻说明、保留项、替换字段、显式参考及 SHA-256 编译成 Ref2VA 长视频项目。非尾段使用精确 `17k+5` 来源窗，镜头分析只在可行时影响合法边界；尾段补到下一合法帧数，合并后一次性裁回源 24 FPS 帧数。`auto` 在 capability 可用时选 Motion Context，否则各段独立使用源区间。
+- 复刻工坊：持久化 `h3.replication/v1` recipe，来源视频不设固定秒数上限（至少一帧 24 FPS），把复刻说明、保留项、替换字段、显式参考及 SHA-256 编译成 Ref2VA 长视频项目。非尾段使用精确 `17k+5` 来源窗，镜头分析只在可行时影响合法边界；尾段补到下一合法帧数，合并后一次性裁回源 24 FPS 帧数。短来源的私有视频/音频参考也补到生成段长度（视频参考至多 360 帧），不改变来源时间线。复刻项目允许超过 1,000 段和 200 个切点；来源帧数须为 JS 精确整数，规划受 `H3_STUDIO_MAX_PROJECT_JSON_BYTES`（默认 32 MiB）约束，分配窗口前预检、返回方案前检查 UTF-8 JSON 大小。普通项目原有段数/切点上限保留。`limits.source_duration_seconds` 返回 `[1/24, null]`，`null` 表示无固定时长上限。`auto` 在 capability 可用时选 Motion Context，否则各段独立使用源区间。
 - 失败/停止恢复、下游失效、派生资产回收
 - ffmpeg concat 合并、进度、取消和产物证据；人物迁移合并后再精确裁帧，并按 `copy-source|reference-source|generate|mute` 实施音频策略
 
@@ -386,7 +419,7 @@ API 路由集中在 `server/app.py::Handler`：
 | 文件夹 | `GET/POST /api/asset-folders`, `PATCH/DELETE /api/asset-folders/:id`（删除时内容提升到父级） |
 | 派生媒体 | `POST /api/media/derive`, `POST /api/media/mux-audio`, `GET /api/derivations`, `GET/PATCH/DELETE /api/derivations/:id`, `POST /api/derivations/:id/assets`（支持 `visibility=internal|library`） |
 | 分镜分析 | `POST /api/media/analyze-scenes` |
-| 长视频 | `POST /api/video/character-migration/plan`, `POST /api/video/replication/plan`, `GET/POST /api/video-projects`, `GET/PUT/DELETE /api/video-projects/:id`, `POST .../run|stop|merge`, `POST .../segments/:id/run` |
+| 长视频 | `POST /api/video/character-migration/plan`, `POST /api/video/replication/plan`, `GET/POST /api/video-projects`, `GET/PUT/DELETE /api/video-projects/:id`, `POST .../run|stop|merge`, `POST .../segments/:id/run`, `PATCH .../segments/:id` |
 | 换声 | `GET /api/voice/capabilities`, `GET/POST /api/voice/tasks`, `GET/DELETE /api/voice/tasks/:id`, `POST .../:id/cancel`, `GET .../:id/preview|download?track=...` |
 | GPU 资源 | `GET /api/resources/gpus`（显存、租约、驻留模型、队列原因） |
 | 维护 | `POST /api/maintenance/gc` |
@@ -402,7 +435,10 @@ API 路由集中在 `server/app.py::Handler`：
 - `media prepare-reference` 与 `media.prepare_reference` 共用服务端派生；本地输入先上传，CLI 本机不需要 ffmpeg。`job resume` 与 `job.resume` 只提交任务 ID、追加步数和幂等 request ID，可继续等待/下载。
 - `video compose` / `video.compose` 是端到端长视频入口：自动补齐 Profile 版本与摘要，再组合项目创建、顺序生成、Motion Context 裁头、合并等待和原子下载。`video trim` 复用 `media trim`，`video concat` 复用 `project merge`，底层原子 operation 仍可独立调用。
 - `video migrate-character` 先解析本地/asset/job/media/当前 context 资源，用纯规划器返回分窗、所有权、尾裁与存储估算，再创建持久项目。`--detach` 只返回 project ID；中断后通过现有 project 原子操作恢复，已完成段不重算。Agent 对应严格 Draft 2020-12 operation `video.character_migration.plan` / `.produce`，通用音频置换是 `media.mux_audio`。
-- `video replicate` 解析来源与可重复 `--reference` locator，与前端共用 `POST /api/video/replication/plan`。`--plan-only` 只返回 recipe/project，`--detach` 在项目开始后返回 ID，默认等待分段、合并并原子下载。Agent 对应 `video.replication.plan` / `.produce`。抖音下载仍是隔离的本地 `h3ctl douyin download`，不将 Cookie 或 `yt-dlp` 并入 H3 服务端。
+- `video replicate` 解析来源与可重复 `--reference` locator，与前端共用 `POST /api/video/replication/plan`。`--plan-only` 只返回 recipe/project，`--detach` 在项目开始后返回 ID，默认等待分段、合并并原子下载。Agent 对应 `video.replication.plan` / `.produce`。抖音本地 `h3ctl douyin download` 保持兼容；新的服务端导入见 2.1。
+- `replication plan/create/list/inspect/export/edit-segment/resume` 提供分阶段审阅；`plan` 禁止覆盖为生成模式，`create` 从方案/项目/CLI 信封中去掉运行结果保存草稿，`resume` 复用 project ID 和已完成段，合并后原子下载。Agent 对应 `video.replication.create/inspect/export/edit_segment/resume`，普通执行仍复用 `project.*`。`PATCH /api/video-projects/:id/segments/:id` 只接受 `expected_updated_at` 和 `prompt/seed/steps`，在共享 RLock 内校验版本并复用 update 的依赖失效规则；不同版本返回 409 `project_changed`，运行中拒绝编辑。Prompt 不扩写，初始 recipe prompt hash 仅为规划来源记录。
+- 前端复刻工坊分为素材与方案、分段审阅、成片；保存草稿和启动生成独立。服务端列表 + localStorage 选中 ID 恢复当前项目；分段分页、来源/结果对照、修改范围提示、未保存修改保护、保存时原始版本乐观锁、轮询恢复。跳转长视频携带 project ID；`serializeVideoProject` 必须保留 recipe，避免丢失精确裁帧/音频策略。详细设计见 `docs/replication-workflow.md`。
+- 归一化来源视频的 storyboard/source_range 以资产 `media.frame_count` 的实际 24 FPS 帧数为准；该字段缺失时才用 `video_duration` 推算。`media.duration` 可能包含 AAC 音频尾部，不能覆盖已有帧数。
 - `--control-timeout` 是控制面 HTTP 超时；transfer/media 超时独立且默认无限。`job wait --timeout` 是总等待超时。
 - 显式 Profile 先读 `/api/capabilities`，自动附加 `profile_version` 和 `manifest_sha256` 作为 `profile_digest`。
 - JSON stdout 使用 `h3ctl.output/v1` 信封，进度/日志写 stderr；JSONL 生成等待先输出 `submitted` 再输出状态事件。提交断连用同一 request ID 和 payload 恢复。
@@ -416,6 +452,17 @@ API 路由集中在 `server/app.py::Handler`：
 完整用法和当前未支持边界见 `docs/cli.md`。
 
 ## 9. 测试策略
+
+ComfyUI 0.37 的 LoadVideo 会把 `type=input` 的来源预览放进 history.outputs；
+`server/comfy.py::find_outputs` 只收集永久 `type=output` 媒体（兼容缺省 type 的旧回执），
+排除 input/temp，避免普通任务预览和长视频分段错误地引用来源素材。
+
+复刻 recipe 的 `segmentation.motion_context_frames` 记录 0/22 帧裁头；
+windows 是互不重叠的成片帧归属，generated_frames 是 H3 原始生成帧数。
+续段的有效帧数为 generated_frames 减裁头，source_range 向前包含相同重叠帧，
+只有最后一段允许补尾，再从合并结果裁回来源帧数。运行、重跑和合并前校验
+分段与 recipe 一致；旧 v1 recipe 仍可读取，但缺少重叠记账的多段 Motion Context
+方案返回 409 `replication_replan_required`，必须重新规划后生成。
 
 按改动风险选择，不要求固定轮数：
 

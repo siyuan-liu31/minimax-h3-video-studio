@@ -82,6 +82,30 @@ func TestAPICompletesTaskCachesAndServesRange(t *testing.T) {
 	}
 }
 
+func TestRetryableFailureCanBeRetriedAfterCooldown(t *testing.T) {
+	var clock atomic.Int64
+	clock.Store(time.Now().UnixNano())
+	extractor := &fakeExtractor{fail: &Error{Code: "cookie_refresh_required", Message: "refresh session", Retryable: true}}
+	api, err := NewAPI(extractor, APIConfig{DataDir: t.TempDir(), TTL: time.Hour, Now: func() time.Time { return time.Unix(0, clock.Load()) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer api.Close()
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	first := waitTask(t, server.URL, submitTask(t, server.URL, "https://v.douyin.com/abc/").ID)
+	if first.Status != "failed" || first.ExpiresAt == nil || first.ExpiresAt.Sub(first.UpdatedAt) != time.Minute {
+		t.Fatalf("retryable failure expiry=%#v", first)
+	}
+	if cached := submitTask(t, server.URL, first.SourceURL); cached.ID != first.ID {
+		t.Fatal("failure was retried inside cooldown")
+	}
+	clock.Add(int64(61 * time.Second))
+	if retried := submitTask(t, server.URL, first.SourceURL); retried.ID == first.ID {
+		t.Fatal("retryable failure remained cached after cooldown")
+	}
+}
+
 func TestAPIRejectsSSRFAndRateLimits(t *testing.T) {
 	extractor := &fakeExtractor{}
 	api, err := NewAPI(extractor, APIConfig{DataDir: t.TempDir(), RateLimit: 1})
@@ -128,7 +152,7 @@ func TestDocsAndOpenAPI(t *testing.T) {
 	}
 	spec := openAPISpec()
 	components := spec["components"].(map[string]any)["schemas"].(map[string]any)
-	for _, name := range []string{"ParseRequest", "ParseResponse", "Task", "Metadata", "DownloadResult", "ErrorResponse"} {
+	for _, name := range []string{"ParseRequest", "ParseResponse", "InspectResponse", "Task", "Metadata", "DownloadResult", "ErrorResponse"} {
 		if components[name] == nil {
 			t.Fatalf("OpenAPI schema %q is missing", name)
 		}
@@ -183,6 +207,103 @@ func TestValidateListenAddressIsLoopbackOnly(t *testing.T) {
 	for _, value := range []string{"0.0.0.0:8765", "192.168.1.2:8765", "bad"} {
 		if err := ValidateListenAddress(value); err == nil {
 			t.Fatalf("unsafe listen accepted: %s", value)
+		}
+	}
+}
+
+func TestStudioBridgeAllowsOnlyPairedLoopbackOrigin(t *testing.T) {
+	origin := "http://127.0.0.1:16020"
+	token := strings.Repeat("a", 48)
+	extractor := &fakeExtractor{}
+	api, err := NewAPI(extractor, APIConfig{DataDir: t.TempDir(), StudioOrigin: origin, AccessToken: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer api.Close()
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+
+	health, _ := http.NewRequest(http.MethodGet, server.URL+"/health", nil)
+	health.Header.Set("Origin", origin)
+	response, err := http.DefaultClient.Do(health)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	_ = json.NewDecoder(response.Body).Decode(&body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || body["bridge_token"] != token || response.Header.Get("Access-Control-Allow-Origin") != origin {
+		t.Fatalf("health status=%d body=%v CORS=%q", response.StatusCode, body, response.Header.Get("Access-Control-Allow-Origin"))
+	}
+
+	preflight, _ := http.NewRequest(http.MethodOptions, server.URL+"/api/parse", nil)
+	preflight.Header.Set("Origin", origin)
+	preflight.Header.Set("Access-Control-Request-Method", "POST")
+	response, _ = http.DefaultClient.Do(preflight)
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("preflight status=%d", response.StatusCode)
+	}
+
+	for _, test := range []struct {
+		name, origin, token string
+		status              int
+	}{
+		{"wrong origin", "https://attacker.example", token, http.StatusForbidden},
+		{"missing token", origin, "", http.StatusUnauthorized},
+		{"wrong token", origin, strings.Repeat("b", 48), http.StatusUnauthorized},
+		{"paired request", origin, token, http.StatusAccepted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.name == "paired request" && extractor.parseCalls.Load() != 0 {
+				t.Fatal("unauthorized request reached extractor")
+			}
+			request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/parse", strings.NewReader(`{"text":"https://v.douyin.com/abc/"}`))
+			request.Header.Set("Origin", test.origin)
+			request.Header.Set("X-H3-Douyin-Token", test.token)
+			response, err := http.DefaultClient.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response.Body.Close()
+			if response.StatusCode != test.status {
+				t.Fatalf("status=%d, want=%d", response.StatusCode, test.status)
+			}
+		})
+	}
+}
+
+func TestInspectReturnsMetadataWithoutDownloading(t *testing.T) {
+	extractor := &fakeExtractor{}
+	api, err := NewAPI(extractor, APIConfig{DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer api.Close()
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	response, err := http.Post(server.URL+"/api/inspect", "application/json", strings.NewReader(`{"text":"https://v.douyin.com/abc/"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var body struct {
+		Metadata Metadata `json:"metadata"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || body.Metadata.ID != "123" || extractor.parseCalls.Load() != 1 || extractor.downloadCalls.Load() != 0 {
+		t.Fatalf("status=%d metadata=%#v parse=%d download=%d", response.StatusCode, body.Metadata, extractor.parseCalls.Load(), extractor.downloadCalls.Load())
+	}
+}
+
+func TestStudioBridgeRejectsRemoteOrigin(t *testing.T) {
+	for _, origin := range []string{"https://127.0.0.1:16020", "http://example.com:16020", "http://127.0.0.1:16020/path"} {
+		api, err := NewAPI(&fakeExtractor{}, APIConfig{DataDir: t.TempDir(), StudioOrigin: origin})
+		if err == nil {
+			api.Close()
+			t.Fatalf("accepted unsafe origin %q", origin)
 		}
 	}
 }

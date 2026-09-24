@@ -223,6 +223,13 @@ func buildDefinitions() map[string]Definition {
 	add("media.download", []string{"media_id", "to"}, map[string]any{"media_id": idRule, "to": stringRule, "force": boolRule})
 	add("media.save", []string{"media_id"}, map[string]any{"media_id": idRule, "display_name": map[string]any{"type": "string"}, "folder_id": idRule})
 	add("media.delete", []string{"media_id"}, map[string]any{"media_id": idRule})
+	add("douyin.submit", []string{"text"}, map[string]any{"text": stringRule, "mode": enum("parse", "download"), "quality": enum("best", "1080", "720"), "request_id": idRule})
+	add("douyin.capabilities", nil, map[string]any{})
+	add("douyin.list", nil, map[string]any{})
+	for _, action := range []string{"get", "cancel", "retry"} {
+		add("douyin."+action, []string{"task_id"}, map[string]any{"task_id": idRule})
+	}
+	add("douyin.wait", []string{"task_id"}, map[string]any{"task_id": idRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0)})
 	add("voice.convert", []string{"engine", "source", "reference"}, map[string]any{
 		"engine": enum("vevo2", "yingmusic"), "source": stringRule, "reference": stringRule,
 		"diffusion_steps":    map[string]any{"type": "integer", "minimum": 10, "maximum": 200},
@@ -327,6 +334,19 @@ func buildDefinitions() map[string]Definition {
 	replicationProduce["timeout_seconds"] = numberRule(0)
 	replicationProduce["poll_seconds"] = numberRule(0)
 	add("video.replication.produce", []string{"version", "source", "brief", "to"}, replicationProduce)
+	add("video.replication.create", []string{"plan"}, map[string]any{"plan": map[string]any{"type": "object"}})
+	add("video.replication.inspect", []string{"project_id"}, map[string]any{"project_id": idRule})
+	add("video.replication.export", []string{"project_id"}, map[string]any{"project_id": idRule})
+	add("video.replication.edit_segment", []string{"project_id", "segment_id", "expected_updated_at"}, map[string]any{
+		"project_id": idRule, "segment_id": idRule, "expected_updated_at": numberRule(0),
+		"prompt": map[string]any{"type": "string", "minLength": float64(1), "maxLength": float64(12000)},
+		"steps":  map[string]any{"type": "integer", "minimum": float64(4), "maximum": float64(50)},
+		"seed":   map[string]any{"type": "integer", "minimum": float64(-1)},
+	})
+	add("video.replication.resume", []string{"project_id", "to"}, map[string]any{
+		"project_id": idRule, "to": stringRule, "force": boolRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0),
+	})
+
 	return defs
 }
 

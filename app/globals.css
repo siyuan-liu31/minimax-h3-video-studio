@@ -888,3 +888,73 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .media-current-frame { display: grid; grid-template-columns: 1fr 54px; gap: 5px; margin-top: 6px; }
 .media-current-frame > span { grid-column: 1 / -1; color: #747e91; font-size: 7px; }
 .media-tools > small { display: block; margin-top: 7px; color: #687388; font-size: 7px; line-height: 1.4; }
+
+/* Replication project review: durable projects, bounded shot list, side-by-side previews. */
+.replication-drawer { display: flex; flex-direction: column; }
+.replication-drawer > .replication-layout, .replication-review { flex: 1; min-height: 0; }
+.replication-project-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 18px; border-bottom: 1px solid #29313e; }
+.replication-project-bar label { display: flex; align-items: center; gap: 8px; color: #aab5c8; font-size: 11px; }
+.replication-project-bar select { max-width: 320px; min-height: 34px; padding: 6px 9px; color: #dce2ee; background: #101722; border: 1px solid #394355; border-radius: 7px; }
+.replication-project-bar nav { display: flex; gap: 4px; margin-left: auto; }
+.replication-project-bar nav button { padding: 8px 12px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #929db0; cursor: pointer; }
+.replication-project-bar nav button[aria-pressed="true"] { color: #e1dcff; background: #282345; border-color: #675cad; }
+.replication-drawer button:disabled { opacity: .45; cursor: not-allowed; }
+.replication-drawer > .replication-error, .replication-drawer > .replication-notice { margin: 8px 18px; flex-shrink: 0; }
+.replication-form > .replication-form-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.replication-form-fields > label, .replication-shot-editor > label { display: grid; gap: 7px; margin: 12px 0; font-size: 11px; color: #aeb8ca; }
+.replication-explanation { color: #9ba7bb; font-size: 11px; line-height: 1.65; }
+.replication-review { display: flex; flex-direction: column; overflow: hidden; }
+.replication-runbar { flex-shrink: 0; padding: 14px 18px; border-bottom: 1px solid #29313e; background: #111722; }
+.replication-runbar > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #e0e6f2; font-size: 12px; }
+.replication-runbar > div:first-child span { color: #9daabd; font-size: 11px; }
+.replication-runbar progress { width: 100%; height: 6px; margin: 10px 0; accent-color: #9284f6; }
+.replication-shot-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr); }
+.replication-shot-list { min-height: 0; overflow-y: auto; padding: 12px; border-right: 1px solid #29313e; }
+.replication-shot-list > button { width: 100%; display: grid; grid-template-columns: 32px 1fr; gap: 5px; padding: 11px; margin-bottom: 7px; text-align: left; color: #b8c3d5; background: #101722; border: 1px solid #303a4d; border-radius: 8px; cursor: pointer; font-size: 10px; }
+.replication-shot-list > button[aria-pressed="true"] { border-color: #9083eb; background: #282445; }
+.replication-shot-list > button small { grid-column: 2; color: #91a2ba; }
+.replication-shot-list .replication-actions { align-items: center; font-size: 10px; color: #9eabc0; }
+.replication-shot-editor { min-width: 0; min-height: 0; overflow-y: auto; padding: 16px 20px; }
+.replication-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.replication-comparison h4 { margin: 0 0 8px; font-size: 11px; color: #adb9cd; }
+.replication-comparison video { width: 100%; height: clamp(150px, 25vh, 300px); object-fit: contain; background: #060910; border: 1px solid #303a4d; border-radius: 9px; }
+.replication-shot-editor textarea { width: 100%; box-sizing: border-box; padding: 12px; color: #d5ddeb; background: #090e16; border: 1px solid #3b4760; border-radius: 8px; resize: vertical; font: 12px/1.65 var(--font-geist-sans); }
+.replication-shot-editor details { margin-top: 18px; color: #8e9db4; font-size: 11px; }
+.replication-shot-editor pre { overflow-x: auto; padding: 10px; background: #080d15; border-radius: 6px; }
+.replication-result-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; }
+.replication-result-panel > video { width: 100%; max-height: 65vh; object-fit: contain; display: block; background: #05080d; margin-bottom: 14px; }
+@media (max-width: 800px) {
+  .replication-project-bar { padding: 10px; }
+  .replication-project-bar nav { margin-left: 0; width: 100%; }
+  .replication-project-bar select { max-width: 220px; }
+  .replication-review { overflow-y: auto; }
+  .replication-shot-layout { display: block; overflow: visible; }
+  .replication-shot-list { max-height: 240px; border-right: 0; border-bottom: 1px solid #29313e; }
+  .replication-shot-editor { overflow: visible; padding: 12px; }
+  .replication-comparison { grid-template-columns: 1fr; }
+}
+
+.replication-comparison .replication-empty { min-height: clamp(150px, 25vh, 300px); box-sizing: border-box; }
+.replication-form details { color: #9ba7bb; font-size: 11px; }
+.replication-form details pre { max-width: 100%; overflow-x: auto; padding: 12px; background: #080d15; }
+
+/* Douyin source library */
+.douyin-drawer { position:absolute; z-index:35; left:76px; top:72px; bottom:20px; width:min(520px, calc(100vw - 96px)); overflow:auto; padding:24px; border:1px solid #343740; border-radius:18px; background:#181a20; color:#eee; box-shadow:0 16px 60px #0008; }
+.douyin-drawer header { display:flex; justify-content:space-between; gap:16px; }
+.douyin-drawer h2 { margin:0; }
+.douyin-drawer p { color:#aaaebc; font-size:13px; line-height:1.6; }
+.douyin-drawer label { display:grid; gap:8px; margin:16px 0; font-size:14px; }
+.douyin-drawer textarea, .douyin-drawer select { background:#22252d; color:#eee; border:1px solid #494d59; border-radius:8px; padding:10px; width:100%; }
+.douyin-drawer textarea { min-height:90px; resize:vertical; }
+.douyin-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.douyin-drawer button, .douyin-actions a { background:#313745; color:#eee; padding:8px 12px; border-radius:8px; border:1px solid #51596a; cursor:pointer; font-size:13px; }
+.douyin-drawer button:disabled { opacity:.45; cursor:default; }
+.douyin-tasks article { border:1px solid #343740; padding:16px; margin:12px 0; border-radius:12px; overflow-wrap:anywhere; }
+.douyin-tasks progress, .douyin-tasks video { width:100%; margin:8px 0; }
+.douyin-tasks video { max-height:300px; }
+.douyin-drawer .douyin-error { color:#ffaaa5; }
+.douyin-failure { margin:12px 0; padding:12px 14px; border:1px solid #a95b57; border-radius:10px; background:#3b2427; color:#fff1ef; }
+.douyin-failure strong { display:block; font-size:14px; }
+.douyin-drawer .douyin-failure p { margin:7px 0; color:#ffe0dc; }
+.douyin-failure small { display:block; margin-top:8px; color:#e2b8b5; overflow-wrap:anywhere; }
+.douyin-drawer pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }

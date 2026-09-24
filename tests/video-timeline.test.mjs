@@ -426,6 +426,7 @@ test("timeline API helper uses every declared durable project endpoint", async (
   await api.stop("p1");
   await api.merge("p1");
   await api.runSegment("p1", "s2");
+  await api.editReplicationSegment("p1", "s2", { expected_updated_at: 123.5, prompt: "exact prompt" });
 
   assert.deepEqual(calls.map(({ url, method }) => [method, url]), [
     ["GET", "/api/video-projects"],
@@ -437,9 +438,11 @@ test("timeline API helper uses every declared durable project endpoint", async (
     ["POST", "/api/video-projects/p1/stop"],
     ["POST", "/api/video-projects/p1/merge"],
     ["POST", "/api/video-projects/p1/segments/s2/run"],
+    ["PATCH", "/api/video-projects/p1/segments/s2"],
   ]);
   assert.deepEqual(calls[3].body, payload);
   assert.deepEqual(calls[5].body, { segment_ids: ["s2", "s1"] });
+  assert.deepEqual(calls[9].body, { expected_updated_at: 123.5, prompt: "exact prompt" });
 });
 
 test("default timeline API wraps receiver-sensitive native fetch", async () => {
@@ -607,4 +610,20 @@ test("timeline preflights H3 modality counts, per-clip duration and aggregate du
   assert.match(validateVideoProject(project({ segments: [refSegment([{ asset_id: mixedAudio[0].id, role: "reference", include_audio: true }, { asset_id: mixedAudio[1].id, role: "reference" }])] }), [refProfile], mixedAudio).join("\n"), /audio may total at most 15/);
   const tooShort = [makeAsset("d".repeat(32), "video", 1.5)];
   assert.match(validateVideoProject(project({ segments: [refSegment([{ asset_id: tooShort[0].id, role: "reference" }])] }), [refProfile], tooShort).join("\n"), /between 2 and 15 seconds/);
+});
+
+
+test("timeline round-trip preserves replication recipe without leaking execution data", () => {
+  const recipe = { type: "replication", version: "h3.replication/v1", output: { frames: 1440 } };
+  const saved = serializeVideoProject(project({ recipe }));
+  assert.deepEqual(saved.recipe, recipe);
+  saved.recipe.output.frames = 1;
+  assert.equal(recipe.output.frames, 1440);
+  assert.equal(saved.status, undefined);
+});
+
+
+test("project API exposes conflict codes without losing server details", async () => {
+  const api = new VideoProjectApi(async () => new Response(JSON.stringify({error: {code: "project_changed", message: "reload"}}), {status: 409}));
+  await assert.rejects(api.editReplicationSegment("p", "s", {expected_updated_at: 1, prompt: "exact"}), (error) => error.status === 409 && error.code === "project_changed" && error.message === "reload");
 });

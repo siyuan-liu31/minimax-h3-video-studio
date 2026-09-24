@@ -185,6 +185,11 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 		case r.URL.Path == "/api/generate":
 			w.WriteHeader(http.StatusAccepted)
 			_ = json.NewEncoder(w).Encode(map[string]any{"job_id": idB})
+		case r.URL.Path == "/api/douyin/tasks" && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(map[string]any{"task_id": idC, "status": "queued"})
+		case strings.HasPrefix(r.URL.Path, "/api/douyin/tasks/") && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"task_id": idC, "status": "completed", "mode": "download", "asset_id": idA})
 		case r.URL.Path == "/api/voice/tasks" && r.Method == http.MethodPost:
 			w.WriteHeader(http.StatusAccepted)
 			_ = json.NewEncoder(w).Encode(map[string]any{"task_id": idC, "status": "queued"})
@@ -217,7 +222,7 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 		case strings.Contains(r.URL.Path, "/download") || strings.HasSuffix(r.URL.Path, "/content"):
 			_, _ = io.WriteString(w, "download")
 		case r.URL.Path == "/api/video-projects/"+idD && r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": idD, "status": "completed"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": idD, "status": "completed", "title": "replica", "recipe": map[string]any{"type": "replication", "version": "h3.replication/v1"}, "segments": []any{map[string]any{"id": idA}}, "merged": map[string]any{"status": "completed"}})
 		default:
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": idD, "asset_id": idA, "status": "ok"})
 		}
@@ -268,6 +273,13 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 		{"media.download", fmt.Sprintf(`{"media_id":%q,"to":%q}`, idC, filepath.Join(temp, "media.bin")), "GET", "/api/derivations/" + idC + "/download", "", nil, 1},
 		{"media.save", fmt.Sprintf(`{"media_id":%q}`, idC), "POST", "/api/derivations/" + idC + "/assets", "visibility", "library", 1},
 		{"media.delete", fmt.Sprintf(`{"media_id":%q}`, idC), "DELETE", "/api/derivations/" + idC, "", nil, 1},
+		{"douyin.submit", `{"text":"https://douyin.com/video/1","mode":"download"}`, "POST", "/api/douyin/tasks", "mode", "download", 1},
+		{"douyin.capabilities", `{}`, "GET", "/api/douyin/capabilities", "", nil, 1},
+		{"douyin.list", `{}`, "GET", "/api/douyin/tasks", "", nil, 1},
+		{"douyin.get", fmt.Sprintf(`{"task_id":%q}`, idC), "GET", "/api/douyin/tasks/" + idC, "", nil, 1},
+		{"douyin.wait", fmt.Sprintf(`{"task_id":%q}`, idC), "GET", "/api/douyin/tasks/" + idC, "", nil, 1},
+		{"douyin.cancel", fmt.Sprintf(`{"task_id":%q}`, idC), "POST", "/api/douyin/tasks/" + idC + "/cancel", "", nil, 1},
+		{"douyin.retry", fmt.Sprintf(`{"task_id":%q}`, idC), "POST", "/api/douyin/tasks/" + idC + "/retry", "", nil, 1},
 		{"voice.convert", fmt.Sprintf(`{"engine":"vevo2","source":"asset:%s","reference":"asset:%s"}`, idA, idB), "POST", "/api/voice/tasks", "engine", "vevo2", 1},
 		{"voice.get", fmt.Sprintf(`{"task_id":%q}`, idC), "GET", "/api/voice/tasks/" + idC, "", nil, 1},
 		{"voice.wait", fmt.Sprintf(`{"task_id":%q,"timeout_seconds":1,"poll_seconds":0.001}`, idC), "GET", "/api/voice/tasks/" + idC, "", nil, 1},
@@ -290,6 +302,11 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 		{"video.character_migration.plan", fmt.Sprintf(`{"version":"h3.character-migration/v1","source":"asset:%s","targets":[{"character":"asset:%s","source_subject":"the centered dancer"}]}`, idA, idB), "POST", "/api/video/character-migration/plan", "source_asset_id", idA, 1},
 		{"video.character_migration.produce", fmt.Sprintf(`{"version":"h3.character-migration/v1","source":"asset:%s","targets":[{"character":"asset:%s","source_subject":"the centered dancer"}],"to":%q,"poll_seconds":0.001}`, idA, idB, filepath.Join(temp, "migration.mp4")), "GET", "/api/video-projects/" + idD + "/merged/download", "", nil, 7},
 		{"video.replication.plan", fmt.Sprintf(`{"version":"h3.replication/v1","source":"asset:%s","brief":"replace the product"}`, idA), "POST", "/api/video/replication/plan", "source_asset_id", idA, 1},
+		{"video.replication.create", `{"plan":{"title":"replica","recipe":{"type":"replication","version":"h3.replication/v1"},"segments":[{"request":{}}]}}`, "POST", "/api/video-projects", "title", "replica", 1},
+		{"video.replication.inspect", fmt.Sprintf(`{"project_id":%q}`, idD), "GET", "/api/video-projects/" + idD, "", nil, 1},
+		{"video.replication.export", fmt.Sprintf(`{"project_id":%q}`, idD), "GET", "/api/video-projects/" + idD, "", nil, 1},
+		{"video.replication.edit_segment", fmt.Sprintf(`{"project_id":%q,"segment_id":%q,"expected_updated_at":1,"prompt":"edited"}`, idD, idA), "PATCH", "/api/video-projects/" + idD + "/segments/" + idA, "prompt", "edited", 1},
+		{"video.replication.resume", fmt.Sprintf(`{"project_id":%q,"to":%q}`, idD, filepath.Join(temp, "resumed.mp4")), "GET", "/api/video-projects/" + idD + "/merged/download", "", nil, 2},
 		{"video.replication.produce", fmt.Sprintf(`{"version":"h3.replication/v1","source":"asset:%s","brief":"replace the product","to":%q,"poll_seconds":0.001}`, idA, filepath.Join(temp, "replication.mp4")), "GET", "/api/video-projects/" + idD + "/merged/download", "", nil, 7},
 	}
 	if len(tests) != len(Definitions()) {

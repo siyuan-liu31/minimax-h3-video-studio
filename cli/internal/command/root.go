@@ -18,7 +18,7 @@ import (
 	"h3studio/cli/internal/output"
 )
 
-const Version = "0.5.0"
+const Version = "0.6.1-dev.20260924"
 
 type IOStreams struct {
 	In       io.Reader
@@ -126,6 +126,8 @@ func (r *Runner) dispatch(ctx context.Context, command string, rest []string) (a
 		return r.runMedia(ctx, rest)
 	case "video":
 		return r.runVideo(ctx, rest)
+	case "replication":
+		return r.runReplication(ctx, rest)
 	case "voice":
 		return r.runVoice(ctx, rest)
 	case "project":
@@ -148,15 +150,16 @@ func (r *Runner) dispatch(ctx context.Context, command string, rest []string) (a
 }
 
 var networkCommandActions = map[string]map[string]bool{
-	"capability": {"list": true, "show": true},
-	"profile":    {"list": true, "show": true},
-	"asset":      {"upload": true, "download": true, "list": true, "get": true, "copy": true, "update": true, "pin": true, "delete": true},
-	"generate":   {"image": true, "video": true},
-	"job":        {"list": true, "get": true, "wait": true, "resume": true, "cancel": true, "download": true, "save": true, "workflow": true, "delete": true},
-	"media":      {"frame": true, "endpoints": true, "trim": true, "extract-audio": true, "remove-audio": true, "mux-audio": true, "prepare-reference": true, "list": true, "get": true, "download": true, "save": true, "delete": true},
-	"video":      {"compose": true, "replicate": true, "migrate-character": true, "trim": true, "concat": true},
-	"voice":      {"convert": true, "status": true, "wait": true, "cancel": true, "delete": true, "download": true, "capabilities": true},
-	"project":    {"list": true, "create": true, "apply": true, "get": true, "delete": true, "run": true, "wait": true, "stop": true, "rerun": true, "merge": true, "download": true},
+	"replication": {"plan": true, "create": true, "list": true, "inspect": true, "export": true, "edit-segment": true, "run": true, "wait": true, "stop": true, "rerun": true, "merge": true, "download": true, "resume": true},
+	"capability":  {"list": true, "show": true},
+	"profile":     {"list": true, "show": true},
+	"asset":       {"upload": true, "download": true, "list": true, "get": true, "copy": true, "update": true, "pin": true, "delete": true},
+	"generate":    {"image": true, "video": true},
+	"job":         {"list": true, "get": true, "wait": true, "resume": true, "cancel": true, "download": true, "save": true, "workflow": true, "delete": true},
+	"media":       {"frame": true, "endpoints": true, "trim": true, "extract-audio": true, "remove-audio": true, "mux-audio": true, "prepare-reference": true, "list": true, "get": true, "download": true, "save": true, "delete": true},
+	"video":       {"compose": true, "replicate": true, "migrate-character": true, "trim": true, "concat": true},
+	"voice":       {"convert": true, "status": true, "wait": true, "cancel": true, "delete": true, "download": true, "capabilities": true},
+	"project":     {"list": true, "create": true, "apply": true, "get": true, "delete": true, "run": true, "wait": true, "stop": true, "rerun": true, "merge": true, "download": true},
 }
 
 func (r *Runner) commandNeedsConnection(command string, args []string) bool {
@@ -170,7 +173,9 @@ func (r *Runner) commandNeedsConnection(command string, args []string) bool {
 		return (len(args) == 1 && args[0] == "list") || (len(args) == 2 && args[0] == "show" && (args[1] == "video" || args[1] == "image"))
 	case "profile":
 		return (len(args) == 1 && args[0] == "list") || (len(args) == 2 && args[0] == "show")
-	case "version", "context", "workflow", "completion", "douyin":
+	case "douyin":
+		return len(args) > 0 && map[string]bool{"import": true, "inspect": true, "capabilities": true, "list": true, "status": true, "wait": true, "cancel": true, "retry": true}[args[0]]
+	case "version", "context", "workflow", "completion":
 		return false
 	case "operation":
 		if len(args) == 0 || args[0] == "list" || args[0] == "schema" {
@@ -376,7 +381,7 @@ func commandFlagNeedsValue(top, sub, arg string) bool {
 		"additional-steps": true, "max-short-edge": true, "max-long-edge": true, "max-duration": true,
 		"audio": true, "fit": true, "alignment": true, "pad-mode": true, "fps": true, "preset": true,
 		"ssh-target": true, "ssh-port": true, "remote-api-port": true,
-		"cookies-from-browser": true, "yt-dlp": true, "listen": true, "data-dir": true,
+		"cookies-from-browser": true, "yt-dlp": true, "listen": true, "data-dir": true, "studio-origin": true,
 		"cache-ttl": true, "rate-limit": true,
 	}
 	if name == "server" {
@@ -474,9 +479,10 @@ Commands:
   media         Extract, trim, remove, or atomically replace media audio
   video         Compose, migrate characters, trim, or concatenate video
   voice         Convert speech or singing timbre with GPU-safe workers
+  replication   Plan, review, edit and resume replication projects
   project       Manage long-video projects
   operation     Discover and invoke stable Agent operations
-  douyin        Parse or download public Douyin media locally; serve Swagger API
+  douyin        Import Douyin into Studio; local download and task management
   workflow      Reserved for resumable operation DAGs
   completion    Reserved for shell completion
 

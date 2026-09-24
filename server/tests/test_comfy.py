@@ -470,6 +470,29 @@ class CapabilityTests(unittest.TestCase):
 
 
 class OutputTests(unittest.TestCase):
+    def test_output_finder_excludes_input_and_temporary_previews(self) -> None:
+        record = {"outputs": {
+            "100": {"images": [{"filename": "reference.mp4", "subfolder": "h3-studio", "type": "input"}]},
+            "101": {"images": [{"filename": "preview.mp4", "type": "temp"}]},
+            "17": {"images": [{"filename": "generated.mp4", "subfolder": "h3-studio/videos", "type": "output"}]},
+        }}
+        self.assertEqual(find_outputs(record, "video"), [
+            {"filename": "generated.mp4", "subfolder": "h3-studio/videos", "type": "output"},
+        ])
+        del record["outputs"]["17"]
+        self.assertEqual(find_outputs(record, "video"), [])
+
+    def test_output_finder_preserves_legacy_default_and_deduplicates(self) -> None:
+        record = {"outputs": {"1": {"images": [
+            {"filename": "image.png"},
+            {"filename": "image.png", "type": "output"},
+            {"filename": "input.png", "type": "input"},
+            {"filename": "preview.png", "type": "temp"},
+        ]}}}
+        self.assertEqual(find_outputs(record, "image"), [
+            {"filename": "image.png", "subfolder": "", "type": "output"},
+        ])
+
     def test_output_finder_handles_nested_comfy_shapes(self) -> None:
         record = {
             "outputs": {

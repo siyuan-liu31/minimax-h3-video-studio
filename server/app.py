@@ -39,6 +39,7 @@ from .security import safe_filename, secure_join, validate_id
 from .storage import AssetFolderStore, AssetStore, JobStore
 from .media import MediaService
 from .media_tasks import MediaTaskManager
+from .douyin import DouyinTasks
 from .scene_analysis import SceneAnalysisService
 from .video_projects import VideoProjectManager
 from .voice import VoiceTaskManager
@@ -67,6 +68,7 @@ class Runtime:
     folders: AssetFolderStore = field(init=False)
     media: MediaService = field(init=False)
     media_tasks: MediaTaskManager = field(init=False)
+    douyin: DouyinTasks = field(init=False)
     scene_analysis: SceneAnalysisService = field(init=False)
     checkpoints: CheckpointManager = field(init=False)
     resources: GpuResourceManager = field(init=False)
@@ -95,6 +97,7 @@ class Runtime:
         self.folders = AssetFolderStore(self.config.data_root / "metadata" / "asset-folders")
         self.media = MediaService(self.config, self.assets, self.mutation_lock)
         self.media_tasks = MediaTaskManager(self.config.data_root, self.media)
+        self.douyin = DouyinTasks(self.config, self.assets, self.mutation_lock, self.media)
         self.scene_analysis = SceneAnalysisService(self.assets)
         self.checkpoints = CheckpointManager(
             self.config, self.jobs, self.assets, self.registry, self.mutation_lock,
@@ -124,6 +127,7 @@ class H3StudioServer(ThreadingHTTPServer):
         runtime.checkpoints.start_gc()
 
     def server_close(self) -> None:
+        self.runtime.douyin.stop()
         self.runtime.media_tasks.stop()
         self.runtime.checkpoints.stop_gc()
         self.runtime.voice.stop()
@@ -1594,10 +1598,19 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/media/analyze-scenes":
                 self._json(HTTPStatus.OK, self.runtime.scene_analysis.analyze(self._read_json()))
                 return
+            if path == "/api/douyin/tasks":
+                self._json(HTTPStatus.ACCEPTED, self.runtime.douyin.submit(self._read_json()))
+                return
             if path == "/api/voice/tasks":
                 self._json(HTTPStatus.ACCEPTED, self.runtime.voice.submit(self._read_json()))
                 return
             segments = [segment for segment in path.split("/") if segment]
+            if len(segments) == 5 and segments[:3] == ["api", "douyin", "tasks"] and segments[4] in {"cancel", "retry"}:
+                data = self._read_json() if self.headers.get("Content-Length", "0") != "0" else {}
+                if data:
+                    raise ApiError(400, "invalid_parameter", "Expected an empty request")
+                self._json(HTTPStatus.ACCEPTED, getattr(self.runtime.douyin, segments[4])(segments[3]))
+                return
             if len(segments) == 4 and segments[:2] == ["api", "media-tasks"] and segments[3] == "cancel":
                 if self.headers.get("Content-Length", "0") != "0":
                     self._read_json()
@@ -1674,6 +1687,7 @@ class Handler(BaseHTTPRequestHandler):
                     registry=self.runtime.registry,
                     available_profiles=available_profiles,
                     motion_context_available=isinstance(motion, dict) and motion.get("available") is True,
+                    max_project_bytes=self.runtime.config.max_project_json_bytes,
                 )
                 self._json(HTTPStatus.OK, result)
                 return
@@ -1752,6 +1766,11 @@ class Handler(BaseHTTPRequestHandler):
             self._require_auth()
             path = urllib.parse.urlparse(self.path).path.rstrip("/")
             segments = [segment for segment in path.split("/") if segment]
+            if len(segments) == 5 and segments[:2] == ["api", "video-projects"] and segments[3] == "segments":
+                self._json(HTTPStatus.OK, self.runtime.projects.edit_replication_segment(
+                    segments[2], segments[4], self._read_json(),
+                ))
+                return
             if len(segments) == 3 and segments[:2] == ["api", "assets"]:
                 data = self._read_json()
                 if not data or set(data) - {"display_name", "folder_id", "pinned"}:
@@ -1910,6 +1929,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/resources/gpus":
                 self._json(HTTPStatus.OK, {"gpus": [self.runtime.resources.snapshot()]})
+                return
+            if path == "/api/douyin/capabilities":
+                self._json(HTTPStatus.OK, self.runtime.douyin.capabilities())
+                return
+            if path == "/api/douyin/tasks":
+                self._json(HTTPStatus.OK, self.runtime.douyin.list())
+                return
+            if re.fullmatch(r"/api/douyin/tasks/[^/]+", path):
+                self._json(HTTPStatus.OK, self.runtime.douyin.get(path.rsplit("/", 1)[1]))
                 return
             if path == "/api/voice/capabilities":
                 self._json(HTTPStatus.OK, self.runtime.voice.capabilities())

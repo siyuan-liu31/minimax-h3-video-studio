@@ -169,6 +169,27 @@ class ApiIntegrationTests(unittest.TestCase):
         connection.close()
         return response.status, headers_out, content
 
+    def test_douyin_routes_require_auth_and_share_durable_task_manager(self):
+        auth = {"X-API-Key": "test-key", "Content-Type": "application/json"}
+        status, _, _ = self.request("GET", "/api/douyin/tasks")
+        self.assertEqual(status, 401)
+        status, _, body = self.request("GET", "/api/douyin/tasks", headers=auth)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"tasks": []})
+        task = {"id": "a" * 32, "task_id": "a" * 32, "status": "queued"}
+        with patch.object(self.server.runtime.douyin, "submit", return_value=task) as submit:
+            status, _, body = self.request("POST", "/api/douyin/tasks", json.dumps({"text": "https://douyin.com/video/1"}), auth)
+            self.assertEqual(status, 202)
+            self.assertEqual(json.loads(body)["task_id"], task["id"])
+            submit.assert_called_once_with({"text": "https://douyin.com/video/1"})
+        for action in ("cancel", "retry"):
+            with patch.object(self.server.runtime.douyin, action, return_value=task) as operation:
+                status, _, _ = self.request("POST", "/api/douyin/tasks/" + task["id"] + "/" + action, "{}", auth)
+                self.assertEqual(status, 202)
+                operation.assert_called_once_with(task["id"])
+        status, _, _ = self.request("GET", "/api/douyin/tasks/invalid", headers=auth)
+        self.assertEqual(status, 400)
+
     def test_health_is_public_but_assets_require_key(self) -> None:
         status, _, body = self.request("GET", "/api/health")
         self.assertEqual(status, 200)
@@ -239,6 +260,7 @@ class ApiIntegrationTests(unittest.TestCase):
         self.assertEqual(migration["recipe_version"], "h3.character-migration/v1")
         self.assertTrue(replication["available"])
         self.assertEqual(replication["recipe_version"], "h3.replication/v1")
+        self.assertEqual(replication["limits"]["source_duration_seconds"], [1 / 24, None])
         payload = {
             "version": "h3.character-migration/v1", "source_asset_id": source_id,
             "targets": [{"character_asset_id": character_id, "source_subject": "the center performer"}],
@@ -270,13 +292,35 @@ class ApiIntegrationTests(unittest.TestCase):
         result = json.loads(body)
         self.assertEqual(status, 200, result)
         self.assertEqual(result["version"], "h3.replication/v1")
-        self.assertEqual(result["summary"]["segment_count"], 4)
+        self.assertEqual(result["summary"]["segment_count"], 5)
         self.assertEqual(result["project"]["recipe"]["references"][0]["asset_id"], character_id)
         status, _, body = self.request(
             "POST", "/api/video-projects",
             json.dumps(result["project"]).encode(), headers,
         )
         self.assertEqual(status, 201, json.loads(body))
+        created = json.loads(body)
+        edit_route = f"/api/video-projects/{created['id']}/segments/{created['segments'][0]['id']}"
+        edit = json.dumps({"expected_updated_at": created["updated_at"], "prompt": "A reviewed shot"}).encode()
+        status, _, body = self.request("PATCH", edit_route, edit, {"Content-Type": "application/json"})
+        self.assertEqual(status, 401)
+        status, _, body = self.request("PATCH", edit_route, edit, headers)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)["segments"][0]["request"]["prompt"], "A reviewed shot")
+        status, _, body = self.request("PATCH", edit_route, edit, headers)
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(body)["error"]["code"], "project_changed")
+        for duration in (1 / 24, 3600.0):
+            source = self.server.runtime.assets.metadata.get(source_id)
+            source["media"].update(duration=duration, video_duration=duration, frame_count=round(duration * 24))
+            self.server.runtime.assets.metadata.put(source_id, source)
+            status, _, body = self.request("POST", "/api/video/replication/plan",
+                json.dumps(replication_payload).encode(), headers)
+            planned = json.loads(body)
+            self.assertEqual(status, 200, planned)
+            self.assertEqual(planned["recipe"]["output"]["frames"], round(duration * 24))
+            status, _, body = self.request("POST", "/api/video-projects", json.dumps(planned["project"]).encode(), headers)
+            self.assertEqual(status, 201, json.loads(body))
         status, _, body = self.request("DELETE", f"/api/assets/{character_id}", headers=headers)
         self.assertEqual(status, 409)
         self.assertEqual(json.loads(body)["error"]["code"], "asset_in_use")

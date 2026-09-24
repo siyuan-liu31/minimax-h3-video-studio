@@ -16,13 +16,20 @@ import (
 
 const DouyinHelp = `Usage: h3ctl douyin COMMAND
 
+  import TEXT [--quality best|1080|720] [--detach] [--timeout 10m]
+  import TEXT --local [--cookies-from-browser BROWSER] [--yt-dlp PATH]
+  inspect TEXT [--detach]                 Parse on the Studio server
+  capabilities | list | status TASK | wait TASK | cancel TASK | retry TASK
+
   parse TEXT [--cookies-from-browser BROWSER] [--yt-dlp PATH]
   download TEXT [--to PATH] [--force] [--cookies-from-browser BROWSER] [--yt-dlp PATH]
   serve [--listen 127.0.0.1:8765] [--data-dir PATH] [--cache-ttl 1h]
         [--rate-limit 30] [--cookies-from-browser BROWSER] [--yt-dlp PATH]
+        [--studio-origin http://127.0.0.1:16020]
 
-All Douyin commands run on the local machine and never open the current H3 SSH
-context. TEXT may be a public Douyin HTTPS URL or the complete copied share text.
+parse/download/serve run locally without opening the H3 context.
+import/inspect and task commands use the selected Studio server. import --local
+downloads locally and uploads into that server asset library. TEXT may be a public Douyin HTTPS URL or the complete copied share text.
 Browser cookies are read only when --cookies-from-browser is supplied; they are
 passed directly to yt-dlp and are never stored by h3ctl. The API server is
 loopback-only and exposes Swagger UI at /docs.
@@ -32,6 +39,7 @@ Examples:
   h3ctl douyin download 'share text https://v.douyin.com/...' --to ./downloads \
     --cookies-from-browser chrome
   h3ctl douyin serve --cookies-from-browser chrome
+  h3ctl douyin serve --studio-origin http://127.0.0.1:16020 --cookies-from-browser chrome
 `
 
 func (r *Runner) runDouyin(ctx context.Context, args []string) (any, error) {
@@ -41,6 +49,8 @@ func (r *Runner) runDouyin(ctx context.Context, args []string) (any, error) {
 	}
 	action := args[0]
 	switch action {
+	case "import", "inspect", "capabilities", "list", "status", "wait", "cancel", "retry":
+		return r.runDouyinRemote(ctx, args)
 	case "parse":
 		set := newFlags("douyin parse")
 		browser := set.String("cookies-from-browser", "", "browser cookie source understood by yt-dlp")
@@ -100,6 +110,7 @@ func (r *Runner) runDouyin(ctx context.Context, args []string) (any, error) {
 		dataDir := set.String("data-dir", "", "cache directory")
 		cacheTTL := set.Duration("cache-ttl", time.Hour, "completed download lifetime")
 		rateLimit := set.Int("rate-limit", 30, "parse requests per client IP per minute")
+		studioOrigin := set.String("studio-origin", "", "allow this loopback Studio origin to use the token-protected local bridge")
 		browser := set.String("cookies-from-browser", "", "browser cookie source understood by yt-dlp")
 		executable := set.String("yt-dlp", "", "yt-dlp executable path")
 		timeout := set.Duration("timeout", 5*time.Minute, "per parse or download timeout")
@@ -116,7 +127,7 @@ func (r *Runner) runDouyin(ctx context.Context, args []string) (any, error) {
 		if err != nil {
 			return nil, douyinCLIError(err)
 		}
-		api, err := douyin.NewAPI(client, douyin.APIConfig{DataDir: *dataDir, TTL: *cacheTTL, RateLimit: *rateLimit})
+		api, err := douyin.NewAPI(client, douyin.APIConfig{DataDir: *dataDir, TTL: *cacheTTL, RateLimit: *rateLimit, StudioOrigin: *studioOrigin})
 		if err != nil {
 			return nil, &contract.CLIError{Code: "server_start_failed", Message: err.Error(), Cause: err}
 		}
@@ -128,6 +139,9 @@ func (r *Runner) runDouyin(ctx context.Context, args []string) (any, error) {
 		defer listener.Close()
 		if !r.Globals.Quiet {
 			fmt.Fprintf(r.Streams.Err, "Douyin API: http://%s\nSwagger: http://%s/docs\n", listener.Addr(), listener.Addr())
+			if *studioOrigin != "" {
+				fmt.Fprintf(r.Streams.Err, "Studio local bridge enabled for %s\n", *studioOrigin)
+			}
 		}
 		if err := api.Serve(ctx, listener); err != nil {
 			return nil, &contract.CLIError{Code: "server_failed", Message: err.Error(), Cause: err}

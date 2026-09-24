@@ -103,6 +103,24 @@ func TestClientClassifiesCookieRefresh(t *testing.T) {
 	}
 }
 
+func TestClientDistinguishesAccessRefusalAndRateLimit(t *testing.T) {
+	for _, test := range []struct {
+		stderr string
+		code   string
+	}{
+		{"ERROR: HTTP Error 403: Forbidden", "access_restricted"},
+		{"ERROR: HTTP Error 429: Too Many Requests", "rate_limited"},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			err := classifyProcessError(context.Background(), test.stderr, errors.New("exit 1"))
+			actual := MapError(err)
+			if actual.Code != test.code || !actual.Retryable {
+				t.Fatalf("error=%#v", actual)
+			}
+		})
+	}
+}
+
 func containsPair(values []string, name, value string) bool {
 	for index := 0; index+1 < len(values); index++ {
 		if values[index] == name && values[index+1] == value {

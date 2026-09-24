@@ -69,6 +69,7 @@ import {
 } from "./video-project";
 
 type Props = {
+  initialProjectId?: string;
   assets: LibraryAsset[];
   results: StudioJob[];
   profiles: TimelineProfile[];
@@ -231,7 +232,7 @@ function hydrateProject(remote: VideoProject, profiles: TimelineProfile[], curre
   return mergeVideoProject(base, remote);
 }
 
-export default function VideoTimeline({ assets, results, profiles, onUploadVideo, onImportResult, onAssetCreated, onResultCreated, onClose }: Props) {
+export default function VideoTimeline({ initialProjectId, assets, results, profiles, onUploadVideo, onImportResult, onAssetCreated, onResultCreated, onClose }: Props) {
   const videoProfiles = useMemo(() => profiles.filter((profile) => profile.output_type === "video" && profile.available), [profiles]);
   const [projects, setProjects] = useState<VideoProject[]>([]);
   const [project, setProject] = useState<VideoProject>();
@@ -318,14 +319,15 @@ export default function VideoTimeline({ assets, results, profiles, onUploadVideo
     void API.list().then(async (items) => {
       if (canceled) return;
       setProjects(items);
-      const first = items.find((item) => item.id);
+      const first = initialProjectId ? items.find((item) => item.id === initialProjectId) : items.find((item) => item.id);
+      if (initialProjectId && !first) throw new Error("指定的长视频项目不存在");
       if (first?.id) {
         const detail = await API.get(first.id);
         if (!canceled) remember(hydrateProject(detail, videoProfiles));
       } else if (!canceled) setProject(projectBase(videoProfiles));
     }).catch((caught) => { if (!canceled) { setProject(projectBase(videoProfiles)); setError(caught instanceof Error ? caught.message : "无法恢复长视频项目"); } }).finally(() => { if (!canceled) setLoading(false); });
     return () => { canceled = true; };
-  }, [remember, videoProfiles]);
+  }, [initialProjectId, remember, videoProfiles]);
 
   useEffect(() => {
     if (!project?.id || dirty) return;

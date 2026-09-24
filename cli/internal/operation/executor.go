@@ -28,6 +28,19 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 	s := runtime.Service
 	require := func(key string) string { return stringValue(input[key], "") }
 	switch name {
+	case "douyin.submit":
+		return s.SubmitDouyin(ctx, input)
+	case "douyin.capabilities":
+		return s.API.Get(ctx, "/api/douyin/capabilities")
+	case "douyin.list":
+		return s.API.Get(ctx, "/api/douyin/tasks")
+	case "douyin.get":
+		return s.API.Get(ctx, "/api/douyin/tasks/"+require("task_id"))
+	case "douyin.cancel", "douyin.retry":
+		return jsonAction(ctx, s, http.MethodPost, "/api/douyin/tasks/"+require("task_id")+"/"+strings.TrimPrefix(name, "douyin."), map[string]any{})
+	case "douyin.wait":
+		return s.WaitDouyin(ctx, require("task_id"), WaitOptions{Timeout: durationSeconds(input["timeout_seconds"]), PollInterval: durationSeconds(input["poll_seconds"]), OnEvent: runtime.OnEvent})
+
 	case "asset.upload":
 		return s.Upload(ctx, require("path"), stringValue(input["kind"], "auto"))
 	case "asset.download":
@@ -238,6 +251,26 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 			PollInterval: durationSeconds(input["poll_seconds"]),
 			OnEvent:      runtime.OnEvent,
 		})
+	case "video.replication.create":
+		return s.CreateReplication(ctx, input["plan"].(map[string]any))
+	case "video.replication.inspect", "video.replication.export":
+		project, err := s.GetReplication(ctx, require("project_id"))
+		if err != nil {
+			return nil, err
+		}
+		if name == "video.replication.export" {
+			return ReplicationSpec(project)
+		}
+		return project, nil
+	case "video.replication.edit_segment":
+		body := map[string]any{}
+		copyOptional(body, input, "expected_updated_at", "prompt", "seed", "steps")
+		return jsonAction(ctx, s, http.MethodPatch, "/api/video-projects/"+url.PathEscape(require("project_id"))+"/segments/"+url.PathEscape(require("segment_id")), body)
+	case "video.replication.resume":
+		return s.FinishReplication(ctx, require("project_id"), require("to"), boolValue(input["force"]), WaitOptions{
+			Timeout: durationSeconds(input["timeout_seconds"]), PollInterval: durationSeconds(input["poll_seconds"]), OnEvent: runtime.OnEvent,
+		})
+
 	case "video.replication.plan":
 		return s.PlanReplication(ctx, input)
 	case "video.replication.produce":

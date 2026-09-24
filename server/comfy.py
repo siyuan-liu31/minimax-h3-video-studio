@@ -691,6 +691,10 @@ def find_outputs(record: dict[str, Any], output_type: str) -> list[dict[str, str
         if isinstance(value, dict):
             filename = value.get("filename")
             if isinstance(filename, str) and any(filename.lower().endswith(ext) for ext in extensions):
+                # LoadVideo and preview nodes also publish media in history.
+                # Only saved outputs belong to the generated result list.
+                if value.get("type", "output") != "output":
+                    return
                 found.append(
                     {
                         "filename": filename,

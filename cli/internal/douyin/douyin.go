@@ -273,8 +273,12 @@ func classifyProcessError(ctx context.Context, stderr string, err error) error {
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return &Error{Code: "timeout", Message: "Douyin parsing timed out", Retryable: true, Cause: err}
+	case strings.Contains(lower, "http error 429") || strings.Contains(lower, "too many requests"):
+		return &Error{Code: "rate_limited", Message: "Douyin is limiting requests. Stop repeated attempts, verify the video in the selected browser, and retry later", Retryable: true, Cause: err}
 	case strings.Contains(lower, "fresh cookies") || strings.Contains(lower, "cookies are needed") || strings.Contains(lower, "sign in"):
-		return &Error{Code: "cookie_refresh_required", Message: "fresh Douyin browser cookies are required; open douyin.com in the selected browser and retry", Retryable: true, Cause: err}
+		return &Error{Code: "cookie_refresh_required", Message: "Douyin rejected the request. Verify that the video plays in the selected browser, then retry later; this message does not prove that your cookies expired", Retryable: true, Cause: err}
+	case strings.Contains(lower, "http error 403") || strings.Contains(lower, "403 forbidden"):
+		return &Error{Code: "access_restricted", Message: "Douyin refused video access (HTTP 403). Verify the video in the selected browser and retry later; the response does not identify whether the account, session, or request was restricted", Retryable: true, Cause: err}
 	case strings.Contains(lower, "unsupported url") || strings.Contains(lower, "invalid url"):
 		return &Error{Code: "invalid_link", Message: "the supplied Douyin link could not be parsed", Cause: err}
 	default:

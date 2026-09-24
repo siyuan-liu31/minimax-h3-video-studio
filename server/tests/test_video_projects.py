@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server.character_migration import SCHEMA_VERSION as MIGRATION_VERSION, plan as plan_migration
+from server.replication import plan as plan_replication
 from server.errors import ApiError
 from server.profiles import DEFAULT_REGISTRY, H3_MAX_DURATION_SECONDS
 from server.security import secure_join
@@ -152,6 +153,121 @@ class VideoProjectTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, "", "")
 
         self.manager.command_runner = command_runner
+
+    def test_replication_projects_persist_short_sources_and_more_than_1000_segments(self):
+        source_id = "a" * 32
+        for duration in (1 / 24, 2.0, 18000.0):
+            with self.subTest(duration=duration):
+                self.add_asset(source_id, "video", {**MEDIA, "duration": duration,
+                    "video_duration": duration, "frame_count": round(duration * 24)})
+                source = self.assets.metadata.get(source_id)
+                source["sha256"] = hashlib.sha256(b"asset").hexdigest()
+                self.assets.metadata.put(source_id, source)
+                planned = plan_replication({"source_asset_id": source_id, "brief": "Keep the motion"},
+                    source=source, reference_assets=[], registry=DEFAULT_REGISTRY)
+                project = self.manager.create(planned["project"])
+                saved = self.manager.get(project["id"])
+                self.assertEqual(len(saved["segments"]), planned["summary"]["segment_count"])
+                self.assertEqual(saved["storyboard"]["frame_count"], round(duration * 24))
+                if duration == 18000:
+                    self.assertGreater(len(saved["segments"]), 1000)
+                    self.assertGreater(len(saved["storyboard"]["cut_frames"]), 200)
+
+    def test_legacy_replication_overlap_is_rejected_before_run_rerun_or_merge(self):
+        source_id = "a" * 32
+        self.add_asset(source_id, "video", {**MEDIA, "duration": 16, "video_duration": 16, "frame_count": 384})
+        source = self.assets.metadata.get(source_id)
+        source["sha256"] = hashlib.sha256(b"asset").hexdigest()
+        self.assets.metadata.put(source_id, source)
+        definition = plan_replication({"source_asset_id": source_id, "brief": "Keep motion", "continuity": "none"},
+            source=source, reference_assets=[], registry=DEFAULT_REGISTRY)["project"]
+        definition["recipe"]["continuity"] = "motion_context"
+        definition["recipe"]["segmentation"].pop("motion_context_frames")
+        definition["segments"][1]["continuation"] = "motion_context"
+        created = self.manager.create(definition)
+        for operation in (
+            lambda: self.manager.run(created["id"]),
+            lambda: self.manager.rerun_segment(created["id"], created["segments"][1]["id"]),
+            lambda: self.manager.merge(created["id"]),
+        ):
+            with self.assertRaises(ApiError) as raised:
+                operation()
+            self.assertEqual(raised.exception.code, "replication_replan_required")
+        self.assertEqual(self.comfy.submit_count, 0)
+        self.assertEqual(self.manager.get(created["id"])["status"], "draft")
+
+    def test_replication_edit_is_atomic_preserves_recipe_and_invalidates_only_dependencies(self):
+        source_id = "a" * 32
+        self.add_asset(source_id, "video", {**MEDIA, "duration": 60, "video_duration": 60, "frame_count": 1440})
+        source = self.assets.metadata.get(source_id)
+        source["sha256"] = hashlib.sha256(b"asset").hexdigest()
+        self.assets.metadata.put(source_id, source)
+        planned = plan_replication({"source_asset_id": source_id, "brief": "Keep motion", "continuity": "none"},
+            source=source, reference_assets=[], registry=DEFAULT_REGISTRY)
+        definition = planned["project"]
+        # One dependent continuation followed by an independent scene.
+        definition["segments"][1]["continuation"] = "motion_context"
+        created = self.manager.create(definition)
+        stored = self.manager.store.get(created["id"])
+        for segment in stored["segments"]:
+            segment["status"] = "completed"
+        stored["status"] = "completed"
+        stored["merged"] = {"status": "completed"}
+        self.manager.store.put(created["id"], stored)
+        first = created["segments"][0]["id"]
+        prompt = "  Keep these exact words.\nA new performance.  "
+        edited = self.manager.edit_replication_segment(created["id"], first,
+            {"expected_updated_at": created["updated_at"], "prompt": prompt, "seed": 123})
+        self.assertEqual(edited["recipe"], created["recipe"])
+        self.assertEqual(edited["segments"][0]["request"]["prompt"], prompt)
+        self.assertEqual(edited["segments"][0]["request"]["parameters"]["seed"], 123)
+        self.assertEqual([segment["status"] for segment in edited["segments"]], ["pending", "stale", "completed", "completed"])
+        self.assertNotIn("merged", edited)
+        with self.assertRaises(ApiError) as raised:
+            self.manager.edit_replication_segment(created["id"], first,
+                {"expected_updated_at": created["updated_at"], "prompt": "lost update"})
+        self.assertEqual(raised.exception.code, "project_changed")
+        self.assertEqual(self.manager.get(created["id"])["segments"][0]["request"]["prompt"], prompt)
+        noop = self.manager.edit_replication_segment(created["id"], first,
+            {"expected_updated_at": edited["updated_at"], "prompt": prompt})
+        self.assertEqual(noop["segments"], edited["segments"])
+        for bad in ({"prompt": "x"}, {"expected_updated_at": noop["updated_at"], "prompt": " "},
+                    {"expected_updated_at": noop["updated_at"], "seed": True},
+                    {"expected_updated_at": noop["updated_at"], "request": {}}):
+            with self.assertRaises(ApiError):
+                self.manager.edit_replication_segment(created["id"], first, bad)
+        stored = self.manager.store.get(created["id"])
+        stored["status"] = "running"
+        self.manager.store.put(created["id"], stored)
+        with self.assertRaises(ApiError) as raised:
+            self.manager.edit_replication_segment(created["id"], first,
+                {"expected_updated_at": noop["updated_at"], "prompt": "busy"})
+        self.assertEqual(raised.exception.code, "project_busy")
+
+    def test_short_replication_pads_private_reference_without_extending_source_timeline(self):
+        source_id = "a" * 32
+        self.add_asset(source_id, "video", {**MEDIA, "duration": 1 / 24,
+            "video_duration": 1 / 24, "frame_count": 1})
+        source = self.assets.metadata.get(source_id)
+        source["sha256"] = hashlib.sha256(b"asset").hexdigest()
+        self.assets.metadata.put(source_id, source)
+        planned = plan_replication({"source_asset_id": source_id, "brief": "Keep the motion",
+            "audio_policy": "reference-source"}, source=source, reference_assets=[], registry=DEFAULT_REGISTRY)
+        created = self.manager.create(planned["project"])
+        commands = []
+        def ffmpeg(command, **_kwargs):
+            commands.append(command)
+            Path(command[-1]).write_bytes(b"\x00\x00\x00\x18ftypisompadded")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        self.manager.command_runner = ffmpeg
+        with patch.object(AssetStore, "_probe_media", return_value=dict(MEDIA)):
+            prepared, evidence = self.manager._prepare_request(self.manager.store.get(created["id"]), 0)
+        self.assertTrue(any("tpad=stop_mode=clone:stop=123" in arg for arg in commands[0]))
+        self.assertTrue(any("apad=pad_dur=5.166666667" in arg for arg in commands[0]))
+        self.assertEqual(evidence["source_range"]["frame_count"], 1)
+        self.assertEqual(evidence["source_range"]["materialized_frame_count"], 124)
+        self.assertEqual(created["recipe"]["output"]["frames"], 1)
+        self.assertTrue(prepared["references"][-1]["include_audio"])
 
     def test_direct_media_clip_is_persisted_and_merged_without_h3_submission(self) -> None:
         asset_id = "f" * 32
@@ -357,6 +473,32 @@ class VideoProjectTests(unittest.TestCase):
         self.assertNotIn("comfy_path", encoded)
         self.assertNotIn(str(self.settings.comfy_input), encoded)
 
+    def test_normalized_source_uses_video_frames_not_audio_container_tail(self) -> None:
+        source_id = "e" * 32
+        self.add_asset(source_id, "video", {
+            **MEDIA, "duration": 17.022, "video_duration": 17.0,
+            "fps": 24.0, "reference_fps": 24.0, "source_fps": 30.0,
+            "frame_count": 408, "normalized_to_24fps": True,
+        })
+        storyboard = {
+            "source_asset_id": source_id, "fps": 24.0,
+            "frame_count": 408, "cut_frames": [209],
+        }
+        source_range = {
+            "asset_id": source_id, "start_frame": 187,
+            "end_frame": 408, "fps": 24.0,
+        }
+        created = self.manager.create({
+            "title": "Normalized source with AAC tail",
+            "storyboard": storyboard,
+            "segments": [{
+                "continuation": "none", "request": self.request("minimax-h3-ref2va"),
+                "source_range": source_range,
+            }],
+        })
+        self.assertEqual(created["storyboard"], storyboard)
+        self.assertEqual(created["segments"][0]["source_range"], source_range)
+
     def test_storyboard_rejects_bad_assets_numbers_and_cut_sequences(self) -> None:
         video_id = "b" * 32
         image_id = "c" * 32
@@ -374,7 +516,7 @@ class VideoProjectTests(unittest.TestCase):
             ({**base, "fps": float("nan")}, "invalid_storyboard"),
             ({**base, "fps": float("inf")}, "invalid_storyboard"),
             ({**base, "fps": 241.0}, "invalid_storyboard"),
-            ({**base, "frame_count": 10_000_001}, "invalid_storyboard"),
+            ({**base, "frame_count": 2**53}, "invalid_storyboard"),
             ({**base, "fps": 25.0}, "storyboard_source_mismatch"),
             ({**base, "frame_count": 479}, "storyboard_source_mismatch"),
             ({**base, "cut_frames": [120, 120]}, "invalid_storyboard"),
@@ -739,6 +881,45 @@ class VideoProjectTests(unittest.TestCase):
         self.assertEqual(evidence["source_range"]["materialized_frame_count"], 124)
         self.assertEqual(evidence["source_range"]["input_padding_frames"], 52)
         self.assertTrue(prepared["references"][-1]["include_audio"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg and ffprobe are required")
+    def test_one_frame_replication_reference_and_final_trim_with_real_ffmpeg(self):
+        self.assets.config = replace(self.assets.config, max_video_bytes=2 * 1024 * 1024)
+        source_id = "a" * 32
+        self.add_asset(source_id, "video", {**MEDIA, "duration": 1 / 24,
+            "video_duration": 1 / 24, "frame_count": 1, "has_audio": False})
+        source = self.assets.get(source_id)
+        source_path = self.assets.content_path(source)
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+            "color=red:s=1344x768:r=24", "-frames:v", "1", "-c:v", "libx264",
+            "-pix_fmt", "yuv420p", str(source_path)], check=True, capture_output=True)
+        source["sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        self.assets.metadata.put(source_id, source)
+        planned = plan_replication({"source_asset_id": source_id, "brief": "Keep the motion",
+            "audio_policy": "mute"}, source=source, reference_assets=[], registry=DEFAULT_REGISTRY)
+        created = self.manager.create(planned["project"])
+        self.manager.command_runner = subprocess.run
+        stored = self.manager.store.get(created["id"])
+        attempt_id = "one-frame-trim"
+        stored["merge_attempts"] = [{"id": attempt_id, "status": "merging"}]
+        self.manager.store.put(created["id"], stored)
+        self.probe.stop()
+        try:
+            _, evidence = self.manager._prepare_request(stored, 0)
+            reference = self.assets.get(evidence["source_range"]["asset_id"])
+            self.assertEqual(reference["media"]["frame_count"], 124)
+            # Stand in for H3's legal-length output; no GPU job is submitted.
+            concatenated = self.settings.comfy_output / "one-frame-concat.mp4"
+            concatenated.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.assets.content_path(reference), concatenated)
+            finalized, _ = self.manager._finalize_character_migration(
+                stored, concatenated, (1344, 768), attempt_id, threading.Event())
+            media = AssetStore._probe_media(finalized, "video")
+            self.assertEqual(media["frame_count"], 1)
+            self.assertAlmostEqual(media["duration"], 1 / 24, places=3)
+            self.assertFalse(media["has_audio"])
+        finally:
+            self.probe.start()
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg and ffprobe are required")
     def test_real_source_range_crop_preserves_exact_decoded_frame_interval(self) -> None:

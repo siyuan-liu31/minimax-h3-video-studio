@@ -4,11 +4,13 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export class VideoProjectApiError extends Error {
   readonly status: number;
+  readonly code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "VideoProjectApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -38,7 +40,7 @@ export class VideoProjectApi {
     if (!response.ok) {
       const nested = value.error && typeof value.error === "object" ? value.error as Record<string, unknown> : undefined;
       const message = typeof nested?.message === "string" ? nested.message : typeof value.message === "string" ? value.message : `长视频服务请求失败 (${response.status})`;
-      throw new VideoProjectApiError(message, response.status);
+      throw new VideoProjectApiError(message, response.status, typeof nested?.code === "string" ? nested.code : undefined);
     }
     return value;
   }
@@ -82,6 +84,12 @@ export class VideoProjectApi {
 
   async merge(projectId: string): Promise<VideoProject> {
     return projectFrom(await this.request(`/api/video-projects/${encodeURIComponent(projectId)}/merge`, "POST", {}));
+  }
+
+  async editReplicationSegment(projectId: string, segmentId: string, edit: {
+    expected_updated_at: number; prompt?: string; steps?: number; seed?: number;
+  }): Promise<VideoProject> {
+    return projectFrom(await this.request(`/api/video-projects/${encodeURIComponent(projectId)}/segments/${encodeURIComponent(segmentId)}`, "PATCH", edit));
   }
 
   async runSegment(projectId: string, segmentId: string): Promise<VideoProject> {

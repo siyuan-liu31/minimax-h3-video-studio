@@ -922,6 +922,7 @@ func TestLocalCommandsNeverStartOfflineCurrentSSH(t *testing.T) {
 		{args: []string{"media", "--help"}},
 		{args: []string{"voice", "--help"}},
 		{args: []string{"project", "--help"}},
+		{args: []string{"replication", "--help"}},
 		{args: []string{"operation", "--help"}},
 		{args: []string{"unknown"}, code: 2},
 		{args: []string{"job", "unknown"}, code: 2},
@@ -951,15 +952,16 @@ func TestLocalCommandsNeverStartOfflineCurrentSSH(t *testing.T) {
 func TestConnectionDecisionCoversEveryRemoteCommandAction(t *testing.T) {
 	runner := &Runner{}
 	actions := map[string][]string{
-		"capability": {"list", "show"},
-		"profile":    {"list", "show"},
-		"asset":      {"upload", "download", "list", "get", "copy", "update", "pin", "delete"},
-		"generate":   {"image", "video"},
-		"job":        {"list", "get", "wait", "resume", "cancel", "download", "save", "workflow", "delete"},
-		"media":      {"frame", "endpoints", "trim", "extract-audio", "remove-audio", "mux-audio", "prepare-reference", "list", "get", "download", "save", "delete"},
-		"voice":      {"convert", "status", "wait", "cancel", "delete", "download", "capabilities"},
-		"project":    {"list", "create", "apply", "get", "delete", "run", "wait", "stop", "rerun", "merge", "download"},
-		"video":      {"compose", "replicate", "migrate-character", "trim", "concat"},
+		"capability":  {"list", "show"},
+		"profile":     {"list", "show"},
+		"asset":       {"upload", "download", "list", "get", "copy", "update", "pin", "delete"},
+		"generate":    {"image", "video"},
+		"job":         {"list", "get", "wait", "resume", "cancel", "download", "save", "workflow", "delete"},
+		"media":       {"frame", "endpoints", "trim", "extract-audio", "remove-audio", "mux-audio", "prepare-reference", "list", "get", "download", "save", "delete"},
+		"voice":       {"convert", "status", "wait", "cancel", "delete", "download", "capabilities"},
+		"project":     {"list", "create", "apply", "get", "delete", "run", "wait", "stop", "rerun", "merge", "download"},
+		"replication": {"plan", "create", "list", "inspect", "export", "edit-segment", "resume", "run", "wait", "stop", "rerun", "merge", "download"},
+		"video":       {"compose", "replicate", "migrate-character", "trim", "concat"},
 	}
 	if len(networkCommandActions) != len(actions) {
 		t.Fatalf("network policy top-level drift: %#v", networkCommandActions)
@@ -1893,5 +1895,14 @@ func TestAssetCopyAndProjectDownloadInterspersedFlags(t *testing.T) {
 	raw, _ := os.ReadFile(to)
 	if string(raw) != "video" {
 		t.Fatalf("download=%q", raw)
+	}
+}
+
+func TestReplicationPlanCannotOverrideNoGenerationBoundary(t *testing.T) {
+	for _, flag := range []string{"--plan-only=false", "-plan-only=false", "--detach", "--to=out.mp4"} {
+		code, out, stderr := executeTest(t, []string{"--server", "http://127.0.0.1:1", "replication", "plan", flag}, "")
+		if code != 2 || !strings.Contains(out+stderr, "does not accept") {
+			t.Fatalf("%s code=%d out=%s err=%s", flag, code, out, stderr)
+		}
 	}
 }

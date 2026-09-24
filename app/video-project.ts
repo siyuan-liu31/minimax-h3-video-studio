@@ -118,6 +118,7 @@ export type MergedVideoResult = {
   error?: string;
 };
 export type VideoProject = {
+  recipe?: Record<string, unknown>;
   id?: string;
   title: string;
   status: TimelineStatus;
@@ -588,6 +589,7 @@ export function draftVideoProject(segmentId: string, profile?: TimelineProfile):
 export function serializeVideoProject(project: VideoProject): SerializedVideoProject {
   return {
     title: project.title.trim(),
+    ...(project.recipe ? { recipe: structuredClone(project.recipe) } : {}),
     ...(project.storyboard ? { storyboard: {
       ...project.storyboard,
       cut_frames: [...project.storyboard.cut_frames],

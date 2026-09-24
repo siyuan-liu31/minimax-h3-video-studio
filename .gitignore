@@ -47,6 +47,7 @@ yarn-error.log*
 /data/
 /docs/evidence/
 /docs/development-cycles.md
+/.codex-tmp/
 __pycache__/
 *.py[cod]
 

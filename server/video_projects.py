@@ -27,6 +27,7 @@ from .motion_context import MotionContextStore
 from .profiles import H3_MAX_DURATION_SECONDS, H3_REFERENCE_CAPACITY, ProfileRegistry
 from .replication import RECIPE_TYPE as REPLICATION_RECIPE_TYPE
 from .replication import validate_recipe as validate_replication_recipe
+from .replication import validate_execution as validate_replication_execution
 from .security import secure_join, validate_id
 from .storage import AssetStore, JobStore, JsonStore
 from .workflows import MotionContextPlan, compile_workflow, parse_generation_request, workflow_evidence
@@ -36,7 +37,7 @@ from .workflows import MotionContextPlan, compile_workflow, parse_generation_req
 # per-segment maximum it still permits more than four hours in one project.
 MAX_SEGMENTS = 1000
 MAX_SOURCE_FPS = 240.0
-MAX_SOURCE_FRAMES = 10_000_000
+MAX_SOURCE_FRAMES = 2**53 - 1  # Exact integer timeline shared with JavaScript.
 TERMINAL_JOBS = {"completed", "failed", "canceled"}
 ACTIVE_JOBS = {"submitting", "queued", "running"}
 CONTINUATIONS = {"none", "tail_frame", "previous_video", "motion_context"}
@@ -252,10 +253,51 @@ class VideoProjectManager:
             self._prune_motion_contexts(project)
         return self.receipt(project)
 
+    def edit_replication_segment(self, project_id: str, segment_id: str, body: Any) -> dict[str, Any]:
+        """Edit one request atomically; normal update invalidates dependent takes."""
+        project_id = validate_id(project_id, "project id")
+        segment_id = validate_id(segment_id, "segment id")
+        allowed = {"expected_updated_at", "prompt", "seed", "steps"}
+        if not isinstance(body, dict) or set(body) - allowed or not (set(body) & {"prompt", "seed", "steps"}):
+            raise ApiError(400, "invalid_segment_edit", "supply prompt, seed and/or steps with expected_updated_at")
+        expected = body.get("expected_updated_at")
+        if isinstance(expected, bool) or not isinstance(expected, (int, float)) or not math.isfinite(expected):
+            raise ApiError(400, "invalid_segment_edit", "expected_updated_at is required")
+        if "prompt" in body and (not isinstance(body["prompt"], str) or not body["prompt"].strip() or len(body["prompt"]) > 12000):
+            raise ApiError(400, "invalid_segment_edit", "prompt must contain 1..12000 characters")
+        with self.lock:
+            project = self._get(project_id)
+            if project.get("recipe", {}).get("type") != REPLICATION_RECIPE_TYPE:
+                raise ApiError(400, "not_replication_project", "this action requires a replication project")
+            if project.get("updated_at") != expected:
+                raise ApiError(409, "project_changed", "project changed; reload before saving the segment")
+            definition = {
+                "title": project["title"], "recipe": project["recipe"],
+                **({"storyboard": project["storyboard"]} if project.get("storyboard") else {}),
+                "segments": [{key: segment[key] for key in (
+                    "id", "kind", "continuation", "request", "source_range", "continuation_range", "motion_context", "media_source",
+                ) if key in segment} for segment in project["segments"]],
+            }
+            definition = json.loads(json.dumps(definition))
+            segment = next((item for item in definition["segments"] if item["id"] == segment_id), None)
+            if segment is None:
+                raise ApiError(404, "segment_not_found", "segment does not exist")
+            request = segment["request"]
+            if "prompt" in body:
+                request["prompt"] = body["prompt"]
+                request["prompt_mode"] = "preserve_tags_only"
+            for field in ("seed", "steps"):
+                if field in body:
+                    if isinstance(body[field], bool) or not isinstance(body[field], int):
+                        raise ApiError(400, "invalid_segment_edit", f"{field} must be an integer")
+                    request["parameters"][field] = body[field]
+            return self.update(project_id, definition)
+
     def run(self, project_id: str, segment_ids: Any = None) -> dict[str, Any]:
         project_id = validate_id(project_id, "project id")
         with self.lock:
             project = self.store.get(project_id)
+            validate_replication_execution(project)
             if not project.get("segments"):
                 raise ApiError(409, "project_empty", "project has no segments")
             selected = self._selected_segment_ids(project, segment_ids)
@@ -379,6 +421,7 @@ class VideoProjectManager:
         segment_id = validate_id(segment_id, "segment id")
         with self.lock:
             project = self.store.get(project_id)
+            validate_replication_execution(project)
             worker = self._workers.get(project_id)
             if worker and worker.is_alive():
                 raise ApiError(409, "project_busy", "stop the project before rerunning a segment")
@@ -446,6 +489,7 @@ class VideoProjectManager:
         project_id = validate_id(project_id, "project id")
         with self.lock:
             project = self.store.get(project_id)
+            validate_replication_execution(project)
             worker = self._workers.get(project_id)
             if worker and worker.is_alive():
                 raise ApiError(409, "project_busy", "project generation or merge is still running")
@@ -532,12 +576,15 @@ class VideoProjectManager:
         title = body.get("title", "")
         if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
             raise ApiError(400, "invalid_project", "title must contain 1..200 characters")
-        raw_segments = body.get("segments")
-        if not isinstance(raw_segments, list) or len(raw_segments) > MAX_SEGMENTS:
-            raise ApiError(400, "invalid_segments", f"segments must be an array of at most {MAX_SEGMENTS} items")
-        storyboard = self._validate_storyboard(body.get("storyboard"))
         raw_recipe = body.get("recipe")
         recipe = validate_project_recipe(raw_recipe) if raw_recipe is not None else None
+        is_replication = bool(recipe and recipe.get("type") == REPLICATION_RECIPE_TYPE)
+        raw_segments = body.get("segments")
+        if not isinstance(raw_segments, list) or (not is_replication and len(raw_segments) > MAX_SEGMENTS):
+            raise ApiError(400, "invalid_segments", f"segments must be an array of at most {MAX_SEGMENTS} items for ordinary projects")
+        storyboard = self._validate_storyboard(
+            body.get("storyboard"), max_cuts=max(0, len(raw_segments) - 1) if is_replication else 200,
+        )
         include_source_audio = bool(recipe and recipe.get("audio_policy") == "reference-source")
         seen: set[str] = set()
         result: list[dict[str, Any]] = []
@@ -588,6 +635,7 @@ class VideoProjectManager:
             request = self._validate_request(
                 raw.get("request"), continuation, source_range, continuation_range,
                 include_source_audio=include_source_audio,
+                pad_source_reference=is_replication,
             )
             segment = {
                 "id": segment_id, "index": index, "continuation": continuation,
@@ -651,8 +699,8 @@ class VideoProjectManager:
         if not isinstance(media, dict):
             media = {}
         # Uploaded non-24fps videos retain their original file for download and
-        # a single normalized Comfy input. Character-migration source ranges
-        # operate on that 24fps planning timeline.
+        # a single normalized Comfy input. Source ranges use the normalized
+        # frame count, not the container duration (which can include audio tail).
         fps_value = media.get("reference_fps") or media.get("fps") if media.get("normalized_to_24fps") else media.get("fps")
         fps = self._finite_number(fps_value, "source video fps")
         duration_value = media.get("duration")
@@ -661,10 +709,14 @@ class VideoProjectManager:
         except (TypeError, ValueError):
             duration = 0.0
         frame_count_value = media.get("frame_count")
-        if media.get("normalized_to_24fps") and math.isfinite(duration) and duration > 0:
-            frame_count_value = int(round(duration * fps))
-        elif (not isinstance(frame_count_value, int) or frame_count_value <= 0) and math.isfinite(duration) and duration > 0:
-            frame_count_value = int(round(duration * fps))
+        if not isinstance(frame_count_value, int) or frame_count_value <= 0:
+            video_duration = media.get("video_duration") if media.get("normalized_to_24fps") else None
+            try:
+                duration = float(video_duration) if video_duration is not None else duration
+            except (TypeError, ValueError):
+                duration = 0.0
+            if math.isfinite(duration) and duration > 0:
+                frame_count_value = int(round(duration * fps))
         frame_count = self._positive_frame(frame_count_value, "source video frame_count")
         return asset, fps, frame_count
 
@@ -742,7 +794,7 @@ class VideoProjectManager:
             "fps": fps, "keep_audio": keep_audio,
         }
 
-    def _validate_storyboard(self, value: Any) -> dict[str, Any] | None:
+    def _validate_storyboard(self, value: Any, *, max_cuts: int = 200) -> dict[str, Any] | None:
         if value is None:
             return None
         required = {"source_asset_id", "fps", "frame_count", "cut_frames"}
@@ -755,8 +807,8 @@ class VideoProjectManager:
         if not math.isclose(fps, source_fps, rel_tol=0, abs_tol=0.01) or frame_count != source_frame_count:
             raise ApiError(400, "storyboard_source_mismatch", "storyboard fps and frame_count must match the source video")
         cuts = value.get("cut_frames")
-        if not isinstance(cuts, list) or len(cuts) > 200:
-            raise ApiError(400, "invalid_storyboard", "cut_frames must be an array of at most 200 items")
+        if not isinstance(cuts, list) or len(cuts) > max_cuts:
+            raise ApiError(400, "invalid_storyboard", f"cut_frames must be an array of at most {max_cuts} items")
         normalized_cuts: list[int] = []
         previous = 0
         for cut in cuts:
@@ -863,6 +915,7 @@ class VideoProjectManager:
         continuation_range: dict[str, Any] | None = None,
         *,
         include_source_audio: bool = False,
+        pad_source_reference: bool = False,
     ) -> dict[str, Any]:
         if not isinstance(value, dict):
             raise ApiError(400, "invalid_segment_request", "segment request must be an object")
@@ -941,7 +994,7 @@ class VideoProjectManager:
             if modality_counts[kind] > maximum:
                 raise ApiError(400, "too_many_references", f"H3 supports at most {maximum} {kind} references per segment")
         request: dict[str, Any] = {
-            "prompt": prompt.strip() if isinstance(prompt, str) else "",
+            "prompt": (prompt if prompt_mode == "preserve_tags_only" else prompt.strip()) if isinstance(prompt, str) else "",
             "parameters": dict(parameters),
             "profile_id": profile.id,
             "profile_version": profile.version,
@@ -1040,6 +1093,7 @@ class VideoProjectManager:
                     # reference remains capped at 15 seconds (360 frames).
                     "duration": min(
                         15.0,
+                        float(parameters.get("duration", 5)) if pad_source_reference else
                         (source_range["end_frame"] - source_range["start_frame"]) / source_range["fps"],
                     ),
                     "fps": 24.0, "reference_fps": 24.0,
@@ -1742,10 +1796,12 @@ class VideoProjectManager:
         include_audio = (is_migration or is_planned_replication) and recipe.get("audio_policy") == "reference-source"
         segmentation = recipe.get("segmentation") if isinstance(recipe.get("segmentation"), dict) else {}
         configured_frames = int(segmentation.get("segment_frames", frame_count) or frame_count)
-        # H3 references have a hard 15-second/360-frame ceiling. Migration
+        if is_planned_replication:
+            configured_frames = round(float(request["parameters"]["duration"]) * 24)
+        # H3 references have a hard 15-second/360-frame ceiling. Planned
         # tail windows are padded only in this private model input so source
         # timeline accounting and final trimming remain exact.
-        materialized_frames = min(360, configured_frames) if is_migration else min(360, frame_count)
+        materialized_frames = min(360, configured_frames) if is_migration or is_planned_replication else min(360, frame_count)
         decoded_frames = min(frame_count, materialized_frames)
         pad_frames = max(0, materialized_frames - decoded_frames)
         video_filter = f"trim=start_frame={start_frame}:end_frame={start_frame + decoded_frames},setpts=PTS-STARTPTS"

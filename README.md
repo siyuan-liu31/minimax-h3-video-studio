@@ -171,6 +171,7 @@ flowchart LR
 - Each segment supports about 5.17–15.08 seconds. Failed segments can be rerun; upstream changes invalidate dependent downstream segments so they can be recalculated.
 - When a finished 362-frame segment becomes the next segment's video reference, only a system-derived 15-second reference copy is trimmed. The final merge still uses the complete segment.
 - Motion Context supports both Base and Turbo LoRA Profiles, preserves the requested Profile-bounded step count, and automatically removes reused head frames before concatenation. Adjacent latent-linked segments must keep the same output dimensions.
+- The top-level Replication Workshop accepts a 15–60 second source, a brief, preservation choices, replacement targets, and optional image references. It analyzes scenes, compiles legal H3 segments no longer than 15.08 seconds, then merges and trims the result to the exact source duration.
 - `h3ctl video migrate-character` replaces one explicitly identified performer across a source video of arbitrary practical length. It plans exact 24 FPS windows, carries video/audio latent state through Motion Context, increases the final supported overlap to backfill the terminal window before using any unavoidable padding, and applies `copy-source`, `reference-source`, `generate`, or `mute` audio policy.
 - FFmpeg performs an auditable hard-cut merge. MiniMax H3 Video Studio does not claim automatic seamless audio/video transitions.
 - Run the full pipeline with `h3ctl video compose`, or use the atomic project/trim/concat commands separately. See [Long Video](docs/long-video.md) and [Motion Context composition](docs/motion-context-long-video.md) for the complete contracts.
@@ -188,6 +189,8 @@ flowchart LR
 
 ```bash
 h3ctl video compose --spec trilogy.json --to final.mp4 --timeout 0
+h3ctl video replicate --source source.mp4 --brief "keep motion; replace presenter and product" \
+  --reference presenter.png --to replicated.mp4
 h3ctl video migrate-character --source performance.mp4 --character hero.png \
   --source-subject "the centered dancer" --steps 4 --to migrated.mp4
 h3ctl generate image --profile qwen-image-2.1-bf16 \

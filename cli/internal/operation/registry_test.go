@@ -122,6 +122,7 @@ func TestRegistryAndExecuteCoverWorkflowAtoms(t *testing.T) {
 		"media.save", "media.download", "project.create", "project.apply", "project.list",
 		"project.get", "project.wait", "project.run", "project.merge", "project.download",
 		"video.compose", "video.character_migration.plan", "video.character_migration.produce",
+		"video.replication.plan", "video.replication.produce",
 		"job.list", "job.get", "job.wait", "job.resume", "job.cancel", "job.download",
 		"job.save", "job.delete", "generate.image", "generate.video",
 	}
@@ -205,6 +206,11 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 				"version": "h3.character-migration/v1",
 				"project": map[string]any{"title": "migration", "segments": []any{}},
 			})
+		case r.URL.Path == "/api/video/replication/plan":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"version": "h3.replication/v1",
+				"project": map[string]any{"title": "replication", "segments": []any{}},
+			})
 		case strings.HasSuffix(r.URL.Path, "/assets"):
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"asset_id": idA})
@@ -283,6 +289,8 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 		{"video.compose", fmt.Sprintf(`{"spec":{"title":"film","segments":[]},"to":%q,"poll_seconds":0.001}`, filepath.Join(temp, "composed.mp4")), "GET", "/api/video-projects/" + idD + "/merged/download", "", nil, 6},
 		{"video.character_migration.plan", fmt.Sprintf(`{"version":"h3.character-migration/v1","source":"asset:%s","targets":[{"character":"asset:%s","source_subject":"the centered dancer"}]}`, idA, idB), "POST", "/api/video/character-migration/plan", "source_asset_id", idA, 1},
 		{"video.character_migration.produce", fmt.Sprintf(`{"version":"h3.character-migration/v1","source":"asset:%s","targets":[{"character":"asset:%s","source_subject":"the centered dancer"}],"to":%q,"poll_seconds":0.001}`, idA, idB, filepath.Join(temp, "migration.mp4")), "GET", "/api/video-projects/" + idD + "/merged/download", "", nil, 7},
+		{"video.replication.plan", fmt.Sprintf(`{"version":"h3.replication/v1","source":"asset:%s","brief":"replace the product"}`, idA), "POST", "/api/video/replication/plan", "source_asset_id", idA, 1},
+		{"video.replication.produce", fmt.Sprintf(`{"version":"h3.replication/v1","source":"asset:%s","brief":"replace the product","to":%q,"poll_seconds":0.001}`, idA, filepath.Join(temp, "replication.mp4")), "GET", "/api/video-projects/" + idD + "/merged/download", "", nil, 7},
 	}
 	if len(tests) != len(Definitions()) {
 		t.Fatalf("execution matrix has %d cases for %d definitions", len(tests), len(Definitions()))

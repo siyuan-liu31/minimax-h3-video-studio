@@ -146,6 +146,111 @@ func migrationError(phase, projectID string, err error) error {
 	return &contract.CLIError{Code: "character_migration_failed", Message: "character migration failed during " + phase, Details: details, Cause: err}
 }
 
+func (s *Service) PlanReplication(ctx context.Context, input map[string]any) (map[string]any, error) {
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return nil, contract.NewError("invalid_spec", "replication spec cannot be encoded")
+	}
+	body := map[string]any{}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, contract.NewError("invalid_spec", "replication spec cannot be copied")
+	}
+	for _, key := range []string{"to", "force", "detach", "timeout_seconds", "poll_seconds"} {
+		delete(body, key)
+	}
+	if err := ValidateInput("video.replication.plan", body); err != nil {
+		return nil, err
+	}
+	sourceRef, sourceEvidence, err := s.ResolveAsset(ctx, stringValue(body["source"], ""), "motion")
+	if err != nil {
+		return nil, err
+	}
+	resolved := []any{sourceEvidence}
+	serverReferences := []any{}
+	references, _ := body["references"].([]any)
+	for _, rawReference := range references {
+		reference, _ := rawReference.(map[string]any)
+		assetRef, evidence, resolveErr := s.ResolveAsset(ctx, stringValue(reference["source"], ""), "reference")
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		serverReferences = append(serverReferences, map[string]any{
+			"asset_id": assetRef["asset_id"], "role": reference["role"],
+		})
+		resolved = append(resolved, evidence)
+	}
+	delete(body, "source")
+	body["source_asset_id"] = sourceRef["asset_id"]
+	body["references"] = serverReferences
+	value := map[string]any{}
+	if err := s.API.JSON(ctx, http.MethodPost, "/api/video/replication/plan", body, &value); err != nil {
+		return nil, err
+	}
+	value["resolved_resources"] = resolved
+	return value, nil
+}
+
+func (s *Service) ProduceReplication(ctx context.Context, input map[string]any, options WaitOptions) (map[string]any, error) {
+	destination := stringValue(input["to"], "")
+	force := boolValue(input["force"])
+	detach := boolValue(input["detach"])
+	if destination == "" && !detach {
+		return nil, contract.NewError("invalid_argument", "to is required unless planning only")
+	}
+	if destination != "" {
+		if _, err := os.Stat(destination); err == nil && !force {
+			return nil, contract.NewError("output_exists", "output already exists; pass force=true or --force to replace it")
+		} else if err != nil && !os.IsNotExist(err) {
+			return nil, &contract.CLIError{Code: "local_file", Message: err.Error(), Cause: err}
+		}
+	}
+	planned, err := s.PlanReplication(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	projectSpec, ok := planned["project"].(map[string]any)
+	if !ok {
+		return nil, invalidIDResponse("replication plan did not contain a project")
+	}
+	created, err := jsonActionWithID(ctx, s, http.MethodPost, "/api/video-projects", projectSpec, "project_id", "id")
+	if err != nil {
+		return nil, replicationError("create", "", err)
+	}
+	projectID := stringValue(created["id"], "")
+	if options.OnEvent != nil {
+		options.OnEvent(map[string]any{"type": "project_created", "project_id": projectID, "phase": "create"})
+	}
+	if _, err = jsonAction(ctx, s, http.MethodPost, "/api/video-projects/"+url.PathEscape(projectID)+"/run", map[string]any{}); err != nil {
+		return nil, replicationError("run", projectID, err)
+	}
+	if detach {
+		return map[string]any{"project_id": projectID, "project": created, "plan": planned, "detached": true}, nil
+	}
+	if _, err = s.WaitProject(ctx, projectID, options.Timeout, options.PollInterval, options.OnEvent); err != nil {
+		return nil, replicationError("generate", projectID, err)
+	}
+	if _, err = jsonAction(ctx, s, http.MethodPost, "/api/video-projects/"+url.PathEscape(projectID)+"/merge", map[string]any{}); err != nil {
+		return nil, replicationError("merge", projectID, err)
+	}
+	project, err := s.WaitProject(ctx, projectID, options.Timeout, options.PollInterval, options.OnEvent)
+	if err != nil {
+		return nil, replicationError("merge_wait", projectID, err)
+	}
+	download, err := s.API.Download(ctx, "/api/video-projects/"+url.PathEscape(projectID)+"/merged/download", destination, force)
+	if err != nil {
+		return nil, replicationError("download", projectID, err)
+	}
+	return map[string]any{"project_id": projectID, "project": project, "plan": planned, "download": download}, nil
+}
+
+func replicationError(phase, projectID string, err error) error {
+	details := map[string]any{"phase": phase}
+	if projectID != "" {
+		details["project_id"] = projectID
+	}
+	return &contract.CLIError{Code: "replication_failed", Message: "replication failed during " + phase, Details: details, Cause: err}
+}
+
 func (s *Service) MuxAudio(ctx context.Context, video, audio string, body map[string]any) (map[string]any, error) {
 	videoRef, videoEvidence, err := s.ResolveAsset(ctx, video, "video")
 	if err != nil {

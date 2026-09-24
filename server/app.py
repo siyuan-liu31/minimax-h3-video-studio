@@ -33,6 +33,8 @@ from .h3_reference import estimate_packed_tokens, public_safety_policy, risk_ass
 from .gpu_resources import GpuResourceManager
 from .multipart import MultipartPart, parse_multipart
 from .profiles import DEFAULT_REGISTRY, ProfileRegistry
+from .replication import capability as replication_capability
+from .replication import plan as plan_replication
 from .security import safe_filename, secure_join, validate_id
 from .storage import AssetFolderStore, AssetStore, JobStore
 from .media import MediaService
@@ -876,6 +878,16 @@ class Handler(BaseHTTPRequestHandler):
             storyboard = project.get("storyboard")
             if isinstance(storyboard, dict) and storyboard.get("source_asset_id"):
                 referenced.add(str(storyboard["source_asset_id"]))
+            recipe = project.get("recipe")
+            if isinstance(recipe, dict):
+                if recipe.get("source_asset_id"):
+                    referenced.add(str(recipe["source_asset_id"]))
+                for reference in recipe.get("references", []) if isinstance(recipe.get("references"), list) else []:
+                    if isinstance(reference, dict) and reference.get("asset_id"):
+                        referenced.add(str(reference["asset_id"]))
+                for target in recipe.get("targets", []) if isinstance(recipe.get("targets"), list) else []:
+                    if isinstance(target, dict) and target.get("character_asset_id"):
+                        referenced.add(str(target["character_asset_id"]))
             for segment in project.get("segments", []):
                 source_range = segment.get("source_range") if isinstance(segment, dict) else None
                 if isinstance(source_range, dict) and source_range.get("asset_id"):
@@ -1635,6 +1647,36 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self._json(HTTPStatus.OK, result)
                 return
+            if path == "/api/video/replication/plan":
+                data = self._read_json(maximum=self.runtime.config.max_project_json_bytes)
+                source_id = validate_id(data.get("source_asset_id"), "source_asset_id")
+                raw_references = data.get("references", [])
+                if not isinstance(raw_references, list):
+                    raise ApiError(400, "invalid_replication", "references must be an array")
+                reference_assets = [
+                    self.runtime.assets.get(validate_id(item.get("asset_id"), "reference asset_id"))
+                    for item in raw_references
+                    if isinstance(item, dict)
+                ]
+                if len(reference_assets) != len(raw_references):
+                    raise ApiError(400, "invalid_replication", "each reference must be an object")
+                capabilities = self.runtime.comfy.capabilities(self.runtime.config, self.runtime.registry)
+                available_profiles = {
+                    str(item.get("id"))
+                    for item in capabilities.get("profiles", [])
+                    if isinstance(item, dict) and item.get("available") is True
+                }
+                motion = capabilities.get("video", {}).get("motion_context", {})
+                result = plan_replication(
+                    data,
+                    source=self.runtime.assets.get(source_id),
+                    reference_assets=reference_assets,
+                    registry=self.runtime.registry,
+                    available_profiles=available_profiles,
+                    motion_context_available=isinstance(motion, dict) and motion.get("available") is True,
+                )
+                self._json(HTTPStatus.OK, result)
+                return
             if segments == ["api", "video-projects"]:
                 self._json(HTTPStatus.CREATED, self.runtime.projects.create(
                     self._read_json(maximum=self.runtime.config.max_project_json_bytes)
@@ -1853,6 +1895,10 @@ class Handler(BaseHTTPRequestHandler):
                         profiles=[item for item in capabilities.get("profiles", []) if isinstance(item, dict)],
                         motion_context=video_capability.get("motion_context", {}) if isinstance(video_capability.get("motion_context"), dict) else {},
                     )
+                    video_capability["replication"] = replication_capability(
+                        profiles=[item for item in capabilities.get("profiles", []) if isinstance(item, dict)],
+                        motion_context=video_capability.get("motion_context", {}) if isinstance(video_capability.get("motion_context"), dict) else {},
+                    )
                 safety_policy = public_safety_policy()
                 safety_policy["risk_threshold"] = self.runtime.config.h3_token_risk_threshold
                 self._json(HTTPStatus.OK, {
@@ -2050,6 +2096,7 @@ class Handler(BaseHTTPRequestHandler):
                             "mux_audio": "POST /api/media/mux-audio",
                             "prepare_h3_reference": "POST /api/media/derive operation=prepare_h3_reference",
                             "character_migration_plan": "POST /api/video/character-migration/plan",
+                            "replication_plan": "POST /api/video/replication/plan",
                             "media_task": "GET /api/media-tasks/:id; POST /api/media-tasks/:id/cancel",
                             "voice": "POST /api/voice/tasks; GET /api/voice/tasks/:id",
                             "gpu_resources": "GET /api/resources/gpus",

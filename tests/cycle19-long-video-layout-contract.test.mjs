@@ -186,14 +186,14 @@ test("at and below 680px the drawer preserves the bottom-navigation safe area", 
   assert.ok(numericZ(mobile, ".left-rail") > numericZ(mobile, ".rail-drawer"), "bottom navigation must remain above the drawer");
 });
 
-test("a visible long-video drawer keeps the isolated canvas inert and underneath", () => {
+test("a visible full-workspace video drawer keeps the isolated canvas inert and underneath", () => {
   const canvasZ = numericZ(css, ".canvas-wrap");
   const drawerZ = numericZ(css, ".rail-drawer");
   assert.ok(drawerZ > canvasZ, "drawer must remain above the isolated canvas stacking layer");
   assert.match(declarations(css, ".canvas-wrap"), /isolation\s*:\s*isolate/);
   assert.match(
     studio,
-    /<section[^>]*className="canvas-wrap"[^>]*aria-hidden=\{railPanel === "timeline" \? true : undefined\}[^>]*inert=\{railPanel === "timeline" \? true : undefined\}/,
+    /<section[^>]*className="canvas-wrap"[^>]*aria-hidden=\{railPanel === "timeline" \|\| railPanel === "replication" \? true : undefined\}[^>]*inert=\{railPanel === "timeline" \|\| railPanel === "replication" \? true : undefined\}/,
   );
   assert.match(
     studio,

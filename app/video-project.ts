@@ -157,6 +157,7 @@ export type TimelineRunPlanStep = {
 
 export type SerializedVideoProject = {
   title: string;
+  recipe?: Record<string, unknown>;
   storyboard?: VideoStoryboard;
   segments: Array<{
     id?: string;

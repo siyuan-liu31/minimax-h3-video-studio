@@ -238,6 +238,14 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 			PollInterval: durationSeconds(input["poll_seconds"]),
 			OnEvent:      runtime.OnEvent,
 		})
+	case "video.replication.plan":
+		return s.PlanReplication(ctx, input)
+	case "video.replication.produce":
+		return s.ProduceReplication(ctx, input, WaitOptions{
+			Timeout:      durationSeconds(input["timeout_seconds"]),
+			PollInterval: durationSeconds(input["poll_seconds"]),
+			OnEvent:      runtime.OnEvent,
+		})
 	default:
 		return nil, contract.NewError("not_found", "operation not found")
 	}

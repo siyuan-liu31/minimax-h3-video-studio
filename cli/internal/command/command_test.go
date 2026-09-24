@@ -42,10 +42,39 @@ func TestVideoHelpDocumentsComposeRecoveryAndTrimAlias(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
-	for _, expected := range []string{"video compose", "video migrate-character", "video trim", "video concat", "motion_context", "project_id", "Turbo4"} {
+	for _, expected := range []string{"video compose", "video replicate", "video migrate-character", "video trim", "video concat", "motion_context", "project_id", "Turbo4"} {
 		if !strings.Contains(out, expected) {
 			t.Fatalf("help is missing %q: %s", expected, out)
 		}
+	}
+}
+
+func TestVideoReplicatePlanResolvesSourceAndReferences(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/video/replication/plan" {
+			t.Fatalf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		_ = json.NewEncoder(w).Encode(map[string]any{"version": "h3.replication/v1", "project": map[string]any{}, "summary": map[string]any{}, "prompt": "compiled"})
+	}))
+	defer server.Close()
+	code, _, stderr := executeTest(t, []string{
+		"--server", server.URL, "video", "replicate",
+		"--source", "asset:" + testAssetID,
+		"--brief", "keep motion and replace the product",
+		"--reference", "asset:" + testJobID,
+		"--replace-product", "H3 Studio", "--plan-only", "--json",
+	}, "")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
+	}
+	if payload["version"] != "h3.replication/v1" || payload["source_asset_id"] != testAssetID {
+		t.Fatalf("payload=%v", payload)
+	}
+	references := payload["references"].([]any)
+	if len(references) != 1 || references[0].(map[string]any)["asset_id"] != testJobID {
+		t.Fatalf("references=%v", references)
 	}
 }
 
@@ -930,7 +959,7 @@ func TestConnectionDecisionCoversEveryRemoteCommandAction(t *testing.T) {
 		"media":      {"frame", "endpoints", "trim", "extract-audio", "remove-audio", "mux-audio", "prepare-reference", "list", "get", "download", "save", "delete"},
 		"voice":      {"convert", "status", "wait", "cancel", "delete", "download", "capabilities"},
 		"project":    {"list", "create", "apply", "get", "delete", "run", "wait", "stop", "rerun", "merge", "download"},
-		"video":      {"compose", "migrate-character", "trim", "concat"},
+		"video":      {"compose", "replicate", "migrate-character", "trim", "concat"},
 	}
 	if len(networkCommandActions) != len(actions) {
 		t.Fatalf("network policy top-level drift: %#v", networkCommandActions)

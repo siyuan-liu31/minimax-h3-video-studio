@@ -31,6 +31,7 @@ const QUEUE_REASONS: Record<string, string> = {
   waiting_for_gpu: "等待 GPU",
 };
 const TRACK_LABELS: Record<VoiceTrack, string> = { mix: "最终混音", dry_vocal: "换声干声", accompaniment: "原伴奏" };
+const GUIDANCE_HELP = "控制扩散生成对条件信息的引导幅度，不是音量或参考音频占比。官方默认 0.7，通常建议 0.6–0.8。提高可能强化参考音色，也可能带来颤音、金属感或咬字不稳；降低通常更自然，但音色相似度可能下降。不是越高越好。";
 
 function taskLabel(assetId: string, assets: LibraryAsset[]): string {
   return assets.find((asset) => asset.id === assetId)?.filename ?? assetId.slice(0, 8);
@@ -221,7 +222,13 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
         <strong>歌曲换声参数</strong>
         <div className="voice-tuning-fields">
           <label>采样步数<input type="number" min="10" max="200" step="1" value={steps} onChange={(event) => setSteps(event.target.value)}/></label>
-          <label>引导强度<input type="number" min="0" max="2" step="0.05" value={cfg} onChange={(event) => setCfg(event.target.value)}/></label>
+          <div className="voice-tuning-field">
+            <div className="voice-tuning-label"><label htmlFor="voice-guidance">引导强度</label><span className="voice-parameter-help">
+              <button type="button" aria-label="引导强度说明" aria-describedby="voice-guidance-help">?</button>
+              <span id="voice-guidance-help" role="tooltip">{GUIDANCE_HELP}</span>
+            </span></div>
+            <input id="voice-guidance" type="number" min="0" max="2" step="0.05" value={cfg} aria-describedby="voice-guidance-help" onChange={(event) => setCfg(event.target.value)}/>
+          </div>
           <label>随机种子<input type="number" min="-1" max="4294967295" step="1" value={seed} onChange={(event) => setSeed(event.target.value)}/></label>
         </div>
         <small>官方流程推荐 100 步作为质量与速度折中，并非所有歌曲的最优值。-1 表示每次随机；任务中会记录实际种子。改用记录的种子可复现抽卡条件，GPU 运行仍可能有微小差异。</small>

@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Studio 新增原生“复刻工坊”：输入 15–60 秒来源视频、复刻说明、保留项、替换目标和可选图片参考，先做镜头分析并编译为版本化 `h3.replication/v1` 配方，再复用持久长视频项目逐段生成、合并和精确裁帧；支持原声保留、分段参考原声、重新生成音频和静音成片。
+- `h3ctl video replicate` 与 Agent operations `video.replication.plan` / `video.replication.produce` 支持同一复刻合同，可使用本地文件或远端 locator、仅规划、后台执行、断点恢复和原子下载。
+
+### Changed
+
+- 长视频项目现在可校验、保存和执行复刻配方，并把来源与替换参考的 SHA-256 纳入资产删除保护和运行前完整性检查；复刻成片在合并后裁到来源的精确 24 FPS 帧数。
+
 ## [0.6.0] - 2026-09-22
 
 ### Added

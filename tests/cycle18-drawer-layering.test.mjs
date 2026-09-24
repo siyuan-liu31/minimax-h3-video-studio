@@ -69,8 +69,8 @@ test("long-video actions occupy a dedicated non-overlapping drawer row", () => {
   assert.match(studio, /railPanel === "timeline"\s*&&\s*<VideoTimeline/);
 });
 
-test("an open long-video drawer disables hidden canvas interactions and restores navigation focus", () => {
-  assert.match(studio, /aria-hidden=\{railPanel === "timeline" \? true : undefined\}\s+inert=\{railPanel === "timeline" \? true : undefined\}/);
+test("an open full-workspace drawer disables hidden canvas interactions and restores navigation focus", () => {
+  assert.match(studio, /aria-hidden=\{railPanel === "timeline" \|\| railPanel === "replication" \? true : undefined\}\s+inert=\{railPanel === "timeline" \|\| railPanel === "replication" \? true : undefined\}/);
   assert.match(studio, /if \(!railPanel\)[\s\S]{0,300}previous === "timeline"[\s\S]{0,200}timelineRailButtonRef\.current\?\.focus\(\)/);
   assert.match(studio, /if \(!railPanel\)[\s\S]{0,700}closeContextMenu\(false\);[\s\S]{0,200}setConnecting\(undefined\);[\s\S]{0,150}setConnectionPointer\(undefined\)/);
   assert.match(studio, /ref=\{timelineRailButtonRef\}[\s\S]{0,250}aria-controls="video-timeline-drawer"/);

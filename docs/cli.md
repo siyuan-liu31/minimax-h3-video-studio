@@ -236,6 +236,31 @@ optional `motion_context.video_frames` / `audio_frames`. See
 full contract, pinned external node version, recovery, storage, and dimension
 rules.
 
+## Replication workshop
+
+`video replicate` turns a 15–60 second source into a durable native H3
+project. It preserves selected timing/motion/camera properties, applies the
+requested replacements and optional image references, splits the source into
+legal `17k+5` H3 windows, then merges and trims the result to the exact source
+frame count:
+
+```bash
+h3ctl video replicate \
+  --source ./source.mp4 \
+  --brief "Keep the performance and camera; replace the presenter and product" \
+  --reference ./presenter.png --reference ./product.png \
+  --replace-product "H3 Studio" \
+  --audio copy-source --continuity auto \
+  --to ./replicated.mp4 --timeout 0
+```
+
+Use `--plan-only` to inspect the compiled `h3.replication/v1` recipe and
+project without submitting generation. `--detach` creates and starts the
+project, then returns its ID for recovery through `h3ctl project`. Specs use
+the same fields as Agent operations `video.replication.plan` and
+`video.replication.produce`. Douyin fetching remains local and separate: run
+`h3ctl douyin download URL` first, then pass the downloaded file as `--source`.
+
 ## Unlimited-duration character migration
 
 `video migrate-character` replaces one clearly identified source performer

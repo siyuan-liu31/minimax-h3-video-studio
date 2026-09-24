@@ -153,6 +153,7 @@ flowchart LR
 - 单段支持约 5.17–15.08 秒，失败后可重跑，前序变化会使依赖的下游片段失效并重新计算。
 - 362 帧成片作为下一段视频参考时，只裁剪系统派生的 15 秒参考副本；最终合并仍使用完整成片。
 - Motion Context 同时支持 Base 与 Turbo LoRA Profile，保留 Profile 允许范围内的自定义步数，并在拼接前自动移除复用的片头帧；相邻 latent 续接片段必须保持相同输出尺寸。
+- 左侧“复刻工坊”接收 15–60 秒来源视频、复刻说明、保留项、替换目标和可选图片参考；先分析镜头并生成可审阅方案，再编译为多个不超过 15.08 秒的 H3 片段，最后合并并精确裁到源视频时长。
 - `h3ctl video migrate-character` 可在实用上不限时长的源视频中替换一个明确指定的人物：按 24 FPS 精确分窗，用 Motion Context 传递音视频 latent；尾窗优先向前扩展到更大的合法重叠，仅在网格无法精确覆盖时使用最少补帧，并支持 `copy-source`、`reference-source`、`generate`、`mute` 音频策略。
 - 合并由 FFmpeg 做可审计的硬切拼接，不宣称自动实现无缝音画衔接。
 - 可用 `h3ctl video compose` 跑完整流程，也可分别调用项目、裁剪和拼接原子命令。完整合同见 [长视频文档](docs/long-video.md) 与 [Motion Context 合成长视频](docs/motion-context-long-video.md)。
@@ -166,10 +167,12 @@ flowchart LR
 
 ### 面向 Agent 的 Go CLI
 
-`h3ctl` 把素材传输、生图生视频、任务恢复、媒体派生、长视频项目和不限时长人物迁移拆成稳定的原子命令。`video.character_migration.plan`、`video.character_migration.produce` 和 `media.mux_audio` 为 Agent 提供严格的 Draft 2020-12 合同。它还提供基于 `yt-dlp` 的隔离本地 `douyin parse|download|serve` 工具与仅回环可访问的 Swagger API，不会打开 H3 SSH context。CLI 支持本地文件、远端资产 locator、机器地址可变的 SSH context，以及适合 Agent 解析的 JSON/JSONL 输出。构建、连接、Cookie 安全和完整命令说明见 [Go CLI 文档](docs/cli.md)。
+`h3ctl` 把素材传输、生图生视频、任务恢复、媒体派生、复刻工坊、长视频项目和不限时长人物迁移拆成稳定的原子命令。`video.replication.plan` / `.produce`、`video.character_migration.plan` / `.produce` 和 `media.mux_audio` 为 Agent 提供严格的 Draft 2020-12 合同。它还提供基于 `yt-dlp` 的隔离本地 `douyin parse|download|serve` 工具与仅回环可访问的 Swagger API，不会打开 H3 SSH context。CLI 支持本地文件、远端资产 locator、机器地址可变的 SSH context，以及适合 Agent 解析的 JSON/JSONL 输出。构建、连接、Cookie 安全和完整命令说明见 [Go CLI 文档](docs/cli.md)。
 
 ```bash
 h3ctl video compose --spec trilogy.json --to final.mp4 --timeout 0
+h3ctl video replicate --source source.mp4 --brief "保留动作和运镜，替换人物与产品" \
+  --reference character.png --to replicated.mp4
 h3ctl video migrate-character --source performance.mp4 --character hero.png \
   --source-subject "画面中央的舞者" --steps 4 --to migrated.mp4
 ```

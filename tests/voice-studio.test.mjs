@@ -130,7 +130,12 @@ test("voice drawer is wired to upload/drop, persisted task polling, cancellation
   assert.equal(translateUiText("换声", "en"), "Voice Conversion");
   assert.equal(translateUiText("开始换声", "en"), "Convert Voice");
   assert.equal(translateUiText("种子", "en"), "Seed");
+  assert.equal(translateUiText("引导强度说明", "en"), "Guidance scale help");
   assert.equal(translateUiText("试听与导出音轨", "en"), "Track to preview and export");
   assert.equal(translateUiText("最终混音加入回声", "en"), "Add echo to final mix");
+  assert.match(drawer, /aria-describedby="voice-guidance-help"/);
+  assert.match(drawer, /role="tooltip">\{GUIDANCE_HELP\}/);
+  assert.match(drawer, /官方默认 0\.7/);
+  assert.match(drawer, /不是越高越好/);
   assert.match(drawer, /<span>种子<\/span>/);
 });

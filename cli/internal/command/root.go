@@ -154,7 +154,7 @@ var networkCommandActions = map[string]map[string]bool{
 	"generate":   {"image": true, "video": true},
 	"job":        {"list": true, "get": true, "wait": true, "resume": true, "cancel": true, "download": true, "save": true, "workflow": true, "delete": true},
 	"media":      {"frame": true, "endpoints": true, "trim": true, "extract-audio": true, "remove-audio": true, "mux-audio": true, "prepare-reference": true, "list": true, "get": true, "download": true, "save": true, "delete": true},
-	"video":      {"compose": true, "migrate-character": true, "trim": true, "concat": true},
+	"video":      {"compose": true, "replicate": true, "migrate-character": true, "trim": true, "concat": true},
 	"voice":      {"convert": true, "status": true, "wait": true, "cancel": true, "delete": true, "download": true, "capabilities": true},
 	"project":    {"list": true, "create": true, "apply": true, "get": true, "delete": true, "run": true, "wait": true, "stop": true, "rerun": true, "merge": true, "download": true},
 }

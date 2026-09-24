@@ -233,9 +233,12 @@ class ApiIntegrationTests(unittest.TestCase):
         headers = {"X-API-Key": "test-key", "Content-Type": "application/json"}
         status, _, body = self.request("GET", "/api/capabilities", headers={"X-API-Key": "test-key"})
         migration = json.loads(body)["video"]["character_migration"]
+        replication = json.loads(body)["video"]["replication"]
         self.assertEqual(status, 200)
         self.assertTrue(migration["available"])
         self.assertEqual(migration["recipe_version"], "h3.character-migration/v1")
+        self.assertTrue(replication["available"])
+        self.assertEqual(replication["recipe_version"], "h3.replication/v1")
         payload = {
             "version": "h3.character-migration/v1", "source_asset_id": source_id,
             "targets": [{"character_asset_id": character_id, "source_subject": "the center performer"}],
@@ -251,6 +254,32 @@ class ApiIntegrationTests(unittest.TestCase):
         status, _, body = self.request("POST", "/api/video/character-migration/plan", json.dumps(payload).encode(), headers)
         self.assertEqual(status, 400)
         self.assertEqual(json.loads(body)["error"]["code"], "invalid_character_migration")
+
+        replication_payload = {
+            "version": "h3.replication/v1",
+            "source_asset_id": source_id,
+            "brief": "Keep the motion and replace the presenter",
+            "references": [{"asset_id": character_id, "role": "replacement presenter"}],
+            "audio_policy": "copy-source",
+            "continuity": "auto",
+        }
+        status, _, body = self.request(
+            "POST", "/api/video/replication/plan",
+            json.dumps(replication_payload).encode(), headers,
+        )
+        result = json.loads(body)
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result["version"], "h3.replication/v1")
+        self.assertEqual(result["summary"]["segment_count"], 4)
+        self.assertEqual(result["project"]["recipe"]["references"][0]["asset_id"], character_id)
+        status, _, body = self.request(
+            "POST", "/api/video-projects",
+            json.dumps(result["project"]).encode(), headers,
+        )
+        self.assertEqual(status, 201, json.loads(body))
+        status, _, body = self.request("DELETE", f"/api/assets/{character_id}", headers=headers)
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(body)["error"]["code"], "asset_in_use")
 
     def test_voice_and_gpu_resource_routes_are_authenticated_and_stable(self) -> None:
         task_id = "e" * 32

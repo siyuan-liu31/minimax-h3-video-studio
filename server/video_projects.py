@@ -19,11 +19,14 @@ from typing import Any, Callable
 
 from .comfy import ComfyClient, find_outputs
 from .comfy_tasks import ComfyTaskCoordinator
-from .character_migration import RECIPE_TYPE, validate_recipe
+from .character_migration import RECIPE_TYPE as CHARACTER_MIGRATION_RECIPE_TYPE
+from .character_migration import validate_recipe as validate_character_migration_recipe
 from .config import Config
 from .errors import ApiError
 from .motion_context import MotionContextStore
 from .profiles import H3_MAX_DURATION_SECONDS, H3_REFERENCE_CAPACITY, ProfileRegistry
+from .replication import RECIPE_TYPE as REPLICATION_RECIPE_TYPE
+from .replication import validate_recipe as validate_replication_recipe
 from .security import secure_join, validate_id
 from .storage import AssetStore, JobStore, JsonStore
 from .workflows import MotionContextPlan, compile_workflow, parse_generation_request, workflow_evidence
@@ -41,6 +44,17 @@ POLL_SECONDS = 0.1
 SUBMIT_RECONCILE_INTERVAL_SECONDS = 2.0
 LITERAL_REFERENCE_TAG = re.compile(r"<(?:Picture|Video|Audio)\s+\d+>", re.IGNORECASE)
 STABLE_REFERENCE_ALIAS = re.compile(r"@\{([^{}]+)\}")
+
+
+def validate_project_recipe(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ApiError(400, "invalid_project_recipe", "recipe must be an object")
+    recipe_type = value.get("type")
+    if recipe_type == CHARACTER_MIGRATION_RECIPE_TYPE:
+        return validate_character_migration_recipe(value)
+    if recipe_type == REPLICATION_RECIPE_TYPE:
+        return validate_replication_recipe(value)
+    raise ApiError(400, "invalid_project_recipe", "recipe type is unsupported")
 
 
 class MergeCanceled(Exception):
@@ -178,7 +192,7 @@ class VideoProjectManager:
                 changed_indices = sorted(set(changed_indices) | set(range(len(rebuilt))))
                 for segment in rebuilt:
                     if segment.get("kind") != "media":
-                        segment.update({"status": "stale", "error": "character migration recipe changed"})
+                        segment.update({"status": "stale", "error": "project recipe changed"})
                         segment.pop("job_id", None)
             reclaim_indices: set[int] = set()
             old_segments = project.get("segments", [])
@@ -523,7 +537,7 @@ class VideoProjectManager:
             raise ApiError(400, "invalid_segments", f"segments must be an array of at most {MAX_SEGMENTS} items")
         storyboard = self._validate_storyboard(body.get("storyboard"))
         raw_recipe = body.get("recipe")
-        recipe = validate_recipe(raw_recipe) if raw_recipe is not None else None
+        recipe = validate_project_recipe(raw_recipe) if raw_recipe is not None else None
         include_source_audio = bool(recipe and recipe.get("audio_policy") == "reference-source")
         seen: set[str] = set()
         result: list[dict[str, Any]] = []
@@ -1357,7 +1371,9 @@ class VideoProjectManager:
                         active["motion_context_state"] = dict(job["motion_context_state"])
                     if (
                         isinstance(project.get("recipe"), dict)
-                        and project["recipe"].get("type") == RECIPE_TYPE
+                        and project["recipe"].get("type") in {
+                            CHARACTER_MIGRATION_RECIPE_TYPE, REPLICATION_RECIPE_TYPE,
+                        }
                     ):
                         # The immutable source range and completed job output
                         # are sufficient for restart/rerun. The private padded
@@ -1700,8 +1716,11 @@ class VideoProjectManager:
         ):
             raise ApiError(409, "source_integrity", "source_range asset no longer matches its recorded hash")
         recipe = project.get("recipe") if isinstance(project.get("recipe"), dict) else {}
-        if recipe.get("type") == RECIPE_TYPE and recipe.get("source_sha256") != source_sha:
-            raise ApiError(409, "source_integrity", "source video changed after character-migration planning; create a new plan")
+        if (
+            recipe.get("type") in {CHARACTER_MIGRATION_RECIPE_TYPE, REPLICATION_RECIPE_TYPE}
+            and recipe.get("source_sha256") != source_sha
+        ):
+            raise ApiError(409, "source_integrity", "source video changed after project planning; create a new plan")
         source_path = original_path
         media = source_asset.get("media") if isinstance(source_asset.get("media"), dict) else {}
         if media.get("normalized_to_24fps"):
@@ -1718,8 +1737,9 @@ class VideoProjectManager:
         duration = frame_count / fps
         temp = self.config.data_root / "tmp" / f"source-range-{uuid.uuid4().hex}.mp4"
         temp.parent.mkdir(parents=True, exist_ok=True)
-        is_migration = recipe.get("type") == RECIPE_TYPE
-        include_audio = is_migration and recipe.get("audio_policy") == "reference-source"
+        is_migration = recipe.get("type") == CHARACTER_MIGRATION_RECIPE_TYPE
+        is_planned_replication = recipe.get("type") == REPLICATION_RECIPE_TYPE
+        include_audio = (is_migration or is_planned_replication) and recipe.get("audio_policy") == "reference-source"
         segmentation = recipe.get("segmentation") if isinstance(recipe.get("segmentation"), dict) else {}
         configured_frames = int(segmentation.get("segment_frames", frame_count) or frame_count)
         # H3 references have a hard 15-second/360-frame ceiling. Migration
@@ -1769,7 +1789,7 @@ class VideoProjectManager:
             request, str(asset["id"]), include_audio=include_audio,
             source_subject=(
                 str(recipe.get("targets", [{}])[0].get("source_subject", ""))
-                if recipe.get("type") == RECIPE_TYPE else ""
+                if recipe.get("type") == CHARACTER_MIGRATION_RECIPE_TYPE else ""
             ),
         )
         return prepared, {
@@ -1851,11 +1871,19 @@ class VideoProjectManager:
 
     def _validate_recipe_assets(self, project: dict[str, Any]) -> None:
         recipe = project.get("recipe")
-        if not isinstance(recipe, dict) or recipe.get("type") != RECIPE_TYPE:
+        if not isinstance(recipe, dict) or recipe.get("type") not in {
+            CHARACTER_MIGRATION_RECIPE_TYPE, REPLICATION_RECIPE_TYPE,
+        }:
             return
         source = self.assets.get(str(recipe.get("source_asset_id", "")))
         if source.get("sha256") != recipe.get("source_sha256"):
-            raise ApiError(409, "source_integrity", "source video changed after character-migration planning; create a new plan")
+            raise ApiError(409, "source_integrity", "source video changed after project planning; create a new plan")
+        if recipe.get("type") == REPLICATION_RECIPE_TYPE:
+            for reference in recipe.get("references", []):
+                asset = self.assets.get(str(reference.get("asset_id", "")))
+                if asset.get("sha256") != reference.get("sha256"):
+                    raise ApiError(409, "reference_integrity", "a replication reference changed after planning; create a new plan")
+            return
         targets = recipe.get("targets")
         target = targets[0] if isinstance(targets, list) and targets and isinstance(targets[0], dict) else {}
         character = self.assets.get(str(target.get("character_asset_id", "")))
@@ -2597,11 +2625,13 @@ class VideoProjectManager:
             concat_path.write_text(concat_text, encoding="utf-8")
 
             expected_bytes = sum(item["size"] for item in source_evidence) + 16 * 1024 * 1024
-            character_finalization = (
+            recipe_finalization = (
                 isinstance(project.get("recipe"), dict)
-                and project["recipe"].get("type") == RECIPE_TYPE
+                and project["recipe"].get("type") in {
+                    CHARACTER_MIGRATION_RECIPE_TYPE, REPLICATION_RECIPE_TYPE,
+                }
             )
-            disk_required_bytes = expected_bytes * (2 if character_finalization else 1)
+            disk_required_bytes = expected_bytes * (2 if recipe_finalization else 1)
             merged_root = secure_join(self.config.comfy_output, "h3-studio", "projects")
             merged_root.mkdir(parents=True, exist_ok=True)
             staging_relative = staging.relative_to(self.config.comfy_output.resolve()).as_posix()
@@ -2646,18 +2676,18 @@ class VideoProjectManager:
             ]
             self._run_merge_command(project_id, command, staging, timeout, cancel_event, total_duration)
             finalization: dict[str, Any] | None = None
-            if character_finalization:
-                staging, finalization = self._finalize_character_migration(
+            if recipe_finalization:
+                staging, finalization = self._finalize_recipe_output(
                     project, staging, expected, attempt_id, cancel_event,
                 )
             media = AssetStore._probe_media(staging, "video")
             if finalization is not None:
                 expected_frames = int(finalization["frames"])
                 if int(media.get("frame_count", 0) or 0) != expected_frames:
-                    raise ApiError(422, "character_migration_trim_failed", f"final output must contain exactly {expected_frames} frames")
+                    raise ApiError(422, "project_trim_failed", f"final output must contain exactly {expected_frames} frames")
                 expected_audio = finalization["audio_policy"] != "mute"
                 if (media.get("has_audio") is True) != expected_audio:
-                    raise ApiError(422, "character_migration_audio_failed", "final output stream layout does not match audio_policy")
+                    raise ApiError(422, "project_audio_failed", "final output stream layout does not match audio_policy")
             staged_sha = self._sha256(staging)
             # Detect replacement while ffmpeg was reading, not just before it.
             for source, evidence in zip(integrity_sources, source_evidence, strict=True):
@@ -2682,7 +2712,10 @@ class VideoProjectManager:
                 "prompt_parts": {}, "parameters": {
                     "kind": "merged_video_project", "segment_count": len(sources),
                     "width": expected[0], "height": expected[1], "fps": 24,
-                    **({"character_migration": finalization} if finalization is not None else {}),
+                    **(
+                        {str(project["recipe"]["type"]): finalization}
+                        if finalization is not None and isinstance(project.get("recipe"), dict) else {}
+                    ),
                 },
                 "references": [], "video_project_id": project_id, "synthetic_merge": True,
                 "source_evidence": source_evidence,
@@ -2736,7 +2769,7 @@ class VideoProjectManager:
     def _ffconcat_escape(path: Path) -> str:
         return str(path.resolve()).replace("'", "'\\''")
 
-    def _finalize_character_migration(
+    def _finalize_recipe_output(
         self,
         project: dict[str, Any],
         concatenated: Path,
@@ -2744,21 +2777,22 @@ class VideoProjectManager:
         attempt_id: str,
         cancel_event: threading.Event,
     ) -> tuple[Path, dict[str, Any]]:
-        """Trim padded tail frames and apply the durable recipe audio policy."""
+        """Trim padded tail frames and apply a durable recipe audio policy."""
         self._validate_recipe_assets(project)
-        recipe = validate_recipe(project.get("recipe"))
+        recipe = validate_project_recipe(project.get("recipe"))
+        recipe_type = str(recipe.get("type", "project"))
         segmentation = recipe.get("segmentation") if isinstance(recipe.get("segmentation"), dict) else {}
         output = recipe.get("output") if isinstance(recipe.get("output"), dict) else {}
         expected_dimensions = (int(output.get("width", 0) or 0), int(output.get("height", 0) or 0))
         if dimensions != expected_dimensions:
             raise ApiError(
-                409, "character_migration_dimensions",
-                "generated segment dimensions do not match the planned character-migration output",
+                409, "project_dimensions",
+                "generated segment dimensions do not match the planned project output",
             )
         frames = int(segmentation.get("source_frames", output.get("frames", 0)) or 0)
         fps = int(segmentation.get("fps", 24) or 0)
         if frames <= 0 or fps != 24:
-            raise ApiError(409, "invalid_character_migration_recipe", "recipe must retain a positive 24fps final frame count")
+            raise ApiError(409, "invalid_project_recipe", "recipe must retain a positive 24fps final frame count")
         duration = frames / 24.0
         audio_policy = str(recipe.get("audio_policy", ""))
         processed = concatenated.with_name(f"{concatenated.stem}-final-{uuid.uuid4().hex}.mp4")
@@ -2814,7 +2848,7 @@ class VideoProjectManager:
                 raise ApiError(409, "source_integrity", "source video changed during final audio mux")
             concatenated.unlink(missing_ok=True)
             return processed, {
-                "version": recipe["version"], "frames": frames, "fps": 24,
+                "type": recipe_type, "version": recipe["version"], "frames": frames, "fps": 24,
                 "duration": duration, "width": dimensions[0], "height": dimensions[1],
                 "removed_tail_frames": int(segmentation.get("final_trim_frames", 0) or 0),
                 "audio_policy": audio_policy,
@@ -2823,6 +2857,19 @@ class VideoProjectManager:
         except Exception:
             processed.unlink(missing_ok=True)
             raise
+
+    def _finalize_character_migration(
+        self,
+        project: dict[str, Any],
+        concatenated: Path,
+        dimensions: tuple[int, int],
+        attempt_id: str,
+        cancel_event: threading.Event,
+    ) -> tuple[Path, dict[str, Any]]:
+        """Backward-compatible entry point used by existing tests and integrations."""
+        return self._finalize_recipe_output(
+            project, concatenated, dimensions, attempt_id, cancel_event,
+        )
 
     def _run_merge_command(
         self,

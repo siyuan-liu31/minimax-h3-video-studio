@@ -288,6 +288,45 @@ func buildDefinitions() map[string]Definition {
 	produceProperties["timeout_seconds"] = numberRule(0)
 	produceProperties["poll_seconds"] = numberRule(0)
 	add("video.character_migration.produce", []string{"version", "source", "targets", "to"}, produceProperties)
+	replicationReference := object([]string{"source", "role"}, map[string]any{
+		"source": stringRule,
+		"role":   map[string]any{"type": "string", "minLength": float64(1), "maxLength": float64(100)},
+	})
+	replicationReplace := object(nil, map[string]any{
+		"subject":  map[string]any{"type": "string", "maxLength": float64(2000)},
+		"product":  map[string]any{"type": "string", "maxLength": float64(2000)},
+		"setting":  map[string]any{"type": "string", "maxLength": float64(2000)},
+		"script":   map[string]any{"type": "string", "maxLength": float64(2000)},
+		"language": map[string]any{"type": "string", "maxLength": float64(2000)},
+		"style":    map[string]any{"type": "string", "maxLength": float64(2000)},
+	})
+	replicationProperties := map[string]any{
+		"version":         enum("h3.replication/v1"),
+		"source":          stringRule,
+		"brief":           map[string]any{"type": "string", "minLength": float64(1), "maxLength": float64(4000)},
+		"title":           map[string]any{"type": "string", "minLength": float64(1), "maxLength": float64(200)},
+		"preserve":        map[string]any{"type": "array", "uniqueItems": true, "items": enum("timing", "motion", "camera", "composition", "environment", "lighting", "interactions")},
+		"replace":         replicationReplace,
+		"references":      map[string]any{"type": "array", "maxItems": float64(11), "items": replicationReference},
+		"profile_id":      map[string]any{"type": "string", "minLength": float64(1), "default": "minimax-h3-ref2va"},
+		"profile_version": map[string]any{"type": "string"},
+		"profile_digest":  map[string]any{"type": "string"},
+		"steps":           map[string]any{"type": "integer", "minimum": float64(4), "maximum": float64(50)},
+		"lora_strength":   map[string]any{"type": "number", "minimum": float64(0), "maximum": float64(2)},
+		"seed":            map[string]any{"type": "integer", "minimum": float64(-1)},
+		"continuity":      enum("auto", "none", "motion_context"),
+		"audio_policy":    enum("copy-source", "reference-source", "generate", "mute"),
+		"cut_frames":      map[string]any{"type": "array", "maxItems": float64(200), "items": map[string]any{"type": "integer", "minimum": float64(1)}},
+		"prompt":          map[string]any{"type": "string", "minLength": float64(1), "maxLength": float64(12000)},
+	}
+	add("video.replication.plan", []string{"version", "source", "brief"}, cloneProperties(replicationProperties))
+	replicationProduce := cloneProperties(replicationProperties)
+	replicationProduce["to"] = stringRule
+	replicationProduce["force"] = boolRule
+	replicationProduce["detach"] = boolRule
+	replicationProduce["timeout_seconds"] = numberRule(0)
+	replicationProduce["poll_seconds"] = numberRule(0)
+	add("video.replication.produce", []string{"version", "source", "brief", "to"}, replicationProduce)
 	return defs
 }
 

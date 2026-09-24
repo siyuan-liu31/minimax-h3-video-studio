@@ -143,6 +143,7 @@ flowchart LR
 - 各セグメントは約 5.17～15.08 秒に対応します。失敗したセグメントは再実行でき、上流の変更時には依存する下流セグメントを無効化して再計算できます。
 - 完成した 362 フレームのセグメントを次の動画参照に使う場合、システムが派生させた 15 秒の参照コピーだけを切り詰めます。最終結合では完全なセグメントを使用します。
 - Motion Context は Base と Turbo LoRA の両 Profile に対応し、Profile の許容範囲内で指定したステップ数を維持し、結合前に再利用された先頭フレームを自動で除去します。latent で接続する隣接セグメントは同じ出力サイズである必要があります。
+- トップレベルの「復刻ワークショップ」は 15〜60 秒の元動画、設定、保持項目、置換対象、任意の画像参照を受け取ります。シーンを解析し、15.08 秒以下の H3 セグメントに変換し、結合後に元の正確な長さまでトリムします。
 - `h3ctl video migrate-character` は、実用上長さ無制限の元動画で明示的に指定した 1 人を別のキャラクターに置き換えます。24 FPS の正確な範囲と Motion Context を使用し、末尾ウィンドウは先に戻して対応可能な重複を増やし、グリッド上不可避な場合だけ最小限パディングします。音声は `copy-source`、`reference-source`、`generate`、`mute` から選べます。
 - 結合には FFmpeg による監査可能なハードカットを使用します。自動で継ぎ目のない映像／音声接続を実現するとは表明しません。
 - `h3ctl video compose` でパイプライン全体を実行でき、プロジェクト、トリム、結合の各原子コマンドも個別に利用できます。完全な仕様は [長尺動画文書](docs/long-video.md) と [Motion Context 動画合成](docs/motion-context-long-video.md) を参照してください。
@@ -160,6 +161,8 @@ flowchart LR
 
 ```bash
 h3ctl video compose --spec trilogy.json --to final.mp4 --timeout 0
+h3ctl video replicate --source source.mp4 --brief "動きを保持し、人物と製品を置換" \
+  --reference character.png --to replicated.mp4
 h3ctl video migrate-character --source performance.mp4 --character hero.png \
   --source-subject "画面中央のダンサー" --steps 4 --to migrated.mp4
 ```

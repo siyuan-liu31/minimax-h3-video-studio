@@ -230,8 +230,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .voice-tuning { display: grid; gap: 8px; padding: 12px; border: 1px solid #2d3442; border-radius: 10px; background: #151a24; }
 .voice-tuning strong { color: #eeeef7; font-size: 11px; }
 .voice-tuning-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-.voice-tuning-fields label { display: grid; gap: 5px; color: #aeb7ca; font-size: 10px; }
+.voice-tuning-fields > label, .voice-tuning-field { display: grid; gap: 5px; color: #aeb7ca; font-size: 10px; }
 .voice-tuning-fields input { width: 100%; min-width: 0; min-height: 33px; padding: 5px 6px; border: 1px solid #3b4354; border-radius: 6px; background: #0b0f17; color: #e8e7f4; font-size: 11px; }
+.voice-tuning-label { display: flex; align-items: center; gap: 4px; }
+.voice-parameter-help { position: relative; display: inline-flex; }
+.voice-parameter-help > button { width: 16px; height: 16px; padding: 0; border: 1px solid #5c6680; border-radius: 50%; background: #242a37; color: #bfc8dc; font: 700 10px/14px system-ui, sans-serif; cursor: help; }
+.voice-parameter-help > button:hover, .voice-parameter-help > button:focus-visible { border-color: #9a8cff; color: #fff; outline: none; box-shadow: 0 0 0 2px #8174ff33; }
+.voice-parameter-help [role="tooltip"] { position: absolute; z-index: 12; top: calc(100% + 7px); left: 50%; width: min(270px, calc(100vw - 96px)); padding: 9px 10px; border: 1px solid #575f75; border-radius: 7px; background: #090d15f5; color: #d9deea; font-size: 10px; font-weight: 400; line-height: 1.55; overflow-wrap: anywhere; opacity: 0; visibility: hidden; pointer-events: none; transform: translate(-50%, -3px); transition: opacity .14s ease, transform .14s ease, visibility 0s linear .14s; box-shadow: 0 8px 24px #0009; }
+.voice-parameter-help:hover [role="tooltip"], .voice-parameter-help:focus-within [role="tooltip"] { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition-delay: 0s; }
 .voice-tuning small { color: #8994a9; font-size: 9px; line-height: 1.5; }
 .voice-effect-option { display: flex; align-items: center; gap: 7px; color: #c7cfdd; font-size: 10px; line-height: 1.45; cursor: pointer; }
 .voice-effect-option input { accent-color: #8174ff; }
@@ -389,6 +395,53 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .library-card-body > button.library-connect-image:hover { border-color: #56a995; background: #1b463c; }
 
 /* Cycle 6 durable multi-segment long-video timeline. */
+.replication-drawer { right: 0; width: auto; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); background: #0d1119fa; }
+.replication-layout { min-height: 0; display: grid; grid-template-columns: minmax(420px, 1.15fr) minmax(320px, .85fr); gap: 1px; background: #29313e; overflow: hidden; }
+.replication-form, .replication-plan { min-width: 0; padding: 18px; overflow-y: auto; background: #0f141d; scrollbar-gutter: stable; }
+.replication-plan { background: #0b1018; }
+.replication-section-heading { margin: 4px 0 11px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.replication-section-heading:not(:first-child) { margin-top: 24px; }
+.replication-section-heading b { color: #e2e6ef; font-size: 12px; }
+.replication-section-heading span { color: #697488; font-size: 9px; }
+.replication-form > label, .replication-settings label, .replication-replace-grid label { margin: 9px 0; display: grid; gap: 6px; color: #8b95a7; font-size: 10px; }
+.replication-form :is(input, select, textarea), .replication-settings :is(input, select) { width: 100%; min-height: 36px; box-sizing: border-box; border: 1px solid #323a49; border-radius: 7px; background: #090e15; color: #dce1ea; padding: 8px 10px; font: 11px var(--font-geist-sans); }
+.replication-form textarea { resize: vertical; line-height: 1.55; }
+.replication-source-preview { width: 100%; height: clamp(180px, 30vh, 340px); margin-top: 10px; border: 1px solid #29313e; border-radius: 10px; background: #05070b; object-fit: contain; }
+.replication-empty { padding: 20px; border: 1px dashed #343d4d; border-radius: 9px; color: #778297; background: #0c1119; font-size: 10px; line-height: 1.6; text-align: center; }
+.replication-empty code { color: #a9a0ff; }
+.replication-form fieldset { margin: 12px 0 0; padding: 10px; border: 1px solid #29313e; border-radius: 9px; }
+.replication-form legend { padding: 0 5px; color: #8994a6; font-size: 9px; }
+.replication-checks { display: flex; gap: 6px; flex-wrap: wrap; }
+.replication-checks label { display: flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #303849; border-radius: 999px; background: #141a24; color: #aab3c1; font-size: 9px; cursor: pointer; }
+.replication-checks input { width: auto!important; min-height: 0!important; margin: 0; accent-color: #786df0; }
+.replication-replace-grid, .replication-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
+.replication-reference-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+.replication-reference-grid > button { min-width: 0; padding: 6px; display: grid; gap: 6px; border: 1px solid #303849; border-radius: 8px; background: #121822; color: #8d98aa; cursor: pointer; }
+.replication-reference-grid > button[aria-pressed="true"] { border-color: #766be5; background: #29254e; color: #e5e1ff; box-shadow: inset 0 0 0 1px #766be544; }
+.replication-reference-grid img { width: 100%; height: 82px; border-radius: 5px; object-fit: cover; background: #080b10; }
+.replication-reference-grid span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.replication-primary { width: 100%; min-height: 40px; margin-top: 12px; }
+.replication-plan-empty { min-height: 50vh; display: grid; place-items: center; align-content: center; gap: 9px; color: #707b8e; text-align: center; }
+.replication-plan-empty > span { width: 52px; height: 52px; display: grid; place-items: center; border: 1px solid #4b467f; border-radius: 50%; color: #aaa2ff; background: #211e3f; font-size: 20px; }
+.replication-plan-empty strong { color: #c9cfda; font-size: 12px; }
+.replication-plan-empty p { max-width: 380px; margin: 0; font-size: 10px; line-height: 1.65; }
+.replication-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.replication-summary div { padding: 11px; border: 1px solid #29313e; border-radius: 8px; background: #111721; }
+.replication-summary dt { color: #697589; font-size: 8px; }
+.replication-summary dd { margin: 5px 0 0; color: #dce2ec; font: 11px var(--font-geist-mono); }
+.replication-plan details { margin: 12px 0; padding: 10px; border: 1px solid #29313e; border-radius: 8px; color: #8c97aa; font-size: 9px; }
+.replication-prompt-preview { color: #aeb7c5; line-height: 1.65; overflow-wrap: anywhere; }
+.replication-runtime { display: grid; gap: 11px; }
+.replication-runtime > div:first-child { display: flex; justify-content: space-between; color: #dce1eb; font-size: 11px; }
+.replication-runtime > div:first-child span { color: #8d98a9; }
+.replication-runtime progress { width: 100%; height: 8px; accent-color: #756ae6; }
+.replication-runtime video { width: 100%; max-height: 48vh; border-radius: 9px; background: #05070b; }
+.replication-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.replication-actions a { display: inline-flex; align-items: center; text-decoration: none; }
+.replication-notice, .replication-error { margin: 12px 0 0; padding: 9px 10px; border-radius: 7px; font-size: 9px; line-height: 1.5; }
+.replication-notice { border: 1px solid #2d5148; background: #10221e; color: #9bd7c9; }
+.replication-error { border: 1px solid #633742; background: #241318; color: #eea7b2; }
+
 .timeline-drawer { right: 0; width: auto; overflow: hidden; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: #0d1119fa; }
 .timeline-project-shell { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
 .timeline-project-meta { min-width: 0; }
@@ -636,9 +689,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .director-segment-inspector .timeline-reference-row { grid-template-columns: minmax(0, 1fr) minmax(90px, 1fr) auto; }
   .director-segment-inspector .timeline-reference-row > label, .director-segment-inspector .timeline-reference-row > input { grid-row: 2; }
 }
-@media (max-width: 1050px) { .timeline-drawer { left: 55px; width: auto; } .timeline-controls { grid-template-columns: repeat(4, minmax(100px, 1fr)); } }
+@media (max-width: 1050px) { .timeline-drawer { left: 55px; width: auto; } .replication-drawer { left: 55px; width: auto; } .replication-layout { grid-template-columns: minmax(360px, 1fr) minmax(300px, .8fr); } .timeline-controls { grid-template-columns: repeat(4, minmax(100px, 1fr)); } }
 @media (max-width: 680px) {
   .timeline-drawer { left: 0; width: auto; }
+  .replication-drawer { left: 0; width: auto; }
+  .replication-layout { display: block; overflow-y: auto; }
+  .replication-form, .replication-plan { overflow: visible; }
   .timeline-project-summary { grid-template-columns: 1fr; }
   .timeline-parts > div, .timeline-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .continuation-range-editor { grid-template-columns: 1fr; }

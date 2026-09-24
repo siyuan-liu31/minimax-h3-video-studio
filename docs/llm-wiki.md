@@ -1,6 +1,6 @@
 # MiniMax H3 Video Studio LLM Wiki
 
-> 最后校准：2026-09-22（Asia/Shanghai，本地源码与全套测试；已核对开发机 ComfyUI 0.37 的 Qwen-Image 2.1 原生节点与 H3 必需节点）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
+> 最后校准：2026-09-23（Asia/Shanghai，本地源码与全套测试；已核对开发机 ComfyUI 0.37 的 Qwen-Image 2.1 原生节点与 H3 必需节点）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
 
 ## 1. 先看这里
 
@@ -35,6 +35,7 @@ Browser :3013
 | 普通任务历史、预览、下载、删除 | `app/studio-history.ts`, `app/result-preview.ts`, `server/app.py` | `tests/studio-history.test.mjs`, `tests/result-preview.test.mjs`, `server/tests/test_app.py` |
 | H3 Base latent 断点续采 | `server/checkpoints.py`, `server/workflows.py`, `server/profiles.py` | `server/tests/test_checkpoints.py`, `tests/studio-history.test.mjs` |
 | 长视频模型与 UI | `app/video-project.ts`, `app/video-timeline.tsx`, `app/video-director-*.tsx` | `tests/video-timeline*.test.mjs`, `tests/video-director-model.test.mjs` |
+| 复刻工坊 | `app/replication-*.ts*`, `server/replication.py` | `tests/replication-workshop.test.mjs`, `server/tests/test_replication.py` |
 | 长视频执行、续接、合并 | `server/video_projects.py` | `server/tests/test_video_projects.py` |
 | 音色转换、话筒录音与换声 Worker | `app/voice-studio.tsx`, `app/microphone-recorder.tsx`, `app/microphone-audio.ts`, `app/voice-studio-api.ts`, `server/voice.py`, `server/voice_worker.py` | `tests/microphone-audio.test.mjs`, `tests/voice-studio.test.mjs`, `server/tests/test_voice.py` |
 | GPU 独占租约、驻留模型和队列 | `server/gpu_resources.py`, `server/comfy_tasks.py` | `server/tests/test_gpu_resources.py`, `server/tests/test_comfy_tasks.py` |
@@ -56,6 +57,8 @@ app/
   studio-workspace.ts          多画布标签和 localStorage 原子提交
   studio-video-mode.ts         Director 模式合同与标签映射
   video-project.ts             长视频纯数据模型、校验和运行计划
+  replication-project.ts       复刻工坊前端版本合同与规划 API
+  replication-workshop.tsx     15–60 秒复刻表单、计划、执行与成片
   video-timeline.tsx           长视频抽屉编排
   video-director-workspace.tsx 监视器、时间线与分镜编辑组件
   api/[...path]/route.ts        开发/RSC 环境的 API 代理兼容入口
@@ -77,6 +80,7 @@ server/
   checkpoints.py               最新 checkpoint、TTL/GC、续采身份校验与 staging
   motion_context.py            长视频 Motion Context latent 原子存储、完整性校验与回收
   character_migration.py       人物迁移版本化 recipe、24 FPS 分窗、Prompt 绑定与存储预检
+  replication.py               复刻工坊 `h3.replication/v1` recipe、镜头分段与 Prompt 编译
   video_projects.py            长视频项目执行器、续接、停止、合并、恢复
   prompting.py                 H3 Prompt 标签替换及 FL/Ref 模板编译
   security.py                  ID、文件名、路径与媒体签名安全边界
@@ -361,6 +365,7 @@ $H3_STUDIO_DATA_ROOT/
 - `previous_video`：创建不超过 15 秒的派生视频参考
 - `motion_context`：使用锁定的外部 Motion Context 节点复用上一段视频/音频 latent，对新段自动裁头，且不占用像素参考槽
 - 人物迁移：持久化 `h3.character-migration/v1` recipe，把源人物与目标角色绑定为 `<Subject 1>` / `<Subject 2>`，以 `17k+5` 合法帧窗和 5/22/39/56 帧重叠构造项目。首段独立，后续段 Motion Context 音画窗口一致；尾窗先向前回填并选取可覆盖余量的最大合法重叠，只有短于最小窗口或不足一个 17 帧网格的余量才在私有模型输入补帧，最终产物回到源 24 FPS 帧数
+- 复刻工坊：持久化 `h3.replication/v1` recipe，限定来源视频 15–60 秒，把复刻说明、保留项、替换字段、显式参考及 SHA-256 编译成 Ref2VA 长视频项目。非尾段使用精确 `17k+5` 来源窗，镜头分析只在可行时影响合法边界；尾段补到下一合法帧数，合并后一次性裁回源 24 FPS 帧数。`auto` 在 capability 可用时选 Motion Context，否则各段独立使用源区间。
 - 失败/停止恢复、下游失效、派生资产回收
 - ffmpeg concat 合并、进度、取消和产物证据；人物迁移合并后再精确裁帧，并按 `copy-source|reference-source|generate|mute` 实施音频策略
 
@@ -381,7 +386,7 @@ API 路由集中在 `server/app.py::Handler`：
 | 文件夹 | `GET/POST /api/asset-folders`, `PATCH/DELETE /api/asset-folders/:id`（删除时内容提升到父级） |
 | 派生媒体 | `POST /api/media/derive`, `POST /api/media/mux-audio`, `GET /api/derivations`, `GET/PATCH/DELETE /api/derivations/:id`, `POST /api/derivations/:id/assets`（支持 `visibility=internal|library`） |
 | 分镜分析 | `POST /api/media/analyze-scenes` |
-| 长视频 | `POST /api/video/character-migration/plan`, `GET/POST /api/video-projects`, `GET/PUT/DELETE /api/video-projects/:id`, `POST .../run|stop|merge`, `POST .../segments/:id/run` |
+| 长视频 | `POST /api/video/character-migration/plan`, `POST /api/video/replication/plan`, `GET/POST /api/video-projects`, `GET/PUT/DELETE /api/video-projects/:id`, `POST .../run|stop|merge`, `POST .../segments/:id/run` |
 | 换声 | `GET /api/voice/capabilities`, `GET/POST /api/voice/tasks`, `GET/DELETE /api/voice/tasks/:id`, `POST .../:id/cancel`, `GET .../:id/preview|download?track=...` |
 | GPU 资源 | `GET /api/resources/gpus`（显存、租约、驻留模型、队列原因） |
 | 维护 | `POST /api/maintenance/gc` |
@@ -397,6 +402,7 @@ API 路由集中在 `server/app.py::Handler`：
 - `media prepare-reference` 与 `media.prepare_reference` 共用服务端派生；本地输入先上传，CLI 本机不需要 ffmpeg。`job resume` 与 `job.resume` 只提交任务 ID、追加步数和幂等 request ID，可继续等待/下载。
 - `video compose` / `video.compose` 是端到端长视频入口：自动补齐 Profile 版本与摘要，再组合项目创建、顺序生成、Motion Context 裁头、合并等待和原子下载。`video trim` 复用 `media trim`，`video concat` 复用 `project merge`，底层原子 operation 仍可独立调用。
 - `video migrate-character` 先解析本地/asset/job/media/当前 context 资源，用纯规划器返回分窗、所有权、尾裁与存储估算，再创建持久项目。`--detach` 只返回 project ID；中断后通过现有 project 原子操作恢复，已完成段不重算。Agent 对应严格 Draft 2020-12 operation `video.character_migration.plan` / `.produce`，通用音频置换是 `media.mux_audio`。
+- `video replicate` 解析来源与可重复 `--reference` locator，与前端共用 `POST /api/video/replication/plan`。`--plan-only` 只返回 recipe/project，`--detach` 在项目开始后返回 ID，默认等待分段、合并并原子下载。Agent 对应 `video.replication.plan` / `.produce`。抖音下载仍是隔离的本地 `h3ctl douyin download`，不将 Cookie 或 `yt-dlp` 并入 H3 服务端。
 - `--control-timeout` 是控制面 HTTP 超时；transfer/media 超时独立且默认无限。`job wait --timeout` 是总等待超时。
 - 显式 Profile 先读 `/api/capabilities`，自动附加 `profile_version` 和 `manifest_sha256` 作为 `profile_digest`。
 - JSON stdout 使用 `h3ctl.output/v1` 信封，进度/日志写 stderr；JSONL 生成等待先输出 `submitted` 再输出状态事件。提交断连用同一 request ID 和 payload 恢复。
@@ -448,7 +454,7 @@ npm test
 | Prompt/模式/Profile | 前后端对应测试同时跑 |
 | 工作流节点图 | `server.tests.test_workflows` + capability 测试；有条件再跑远端 dry/real job |
 | API/存储/安全 | 对应 Python 测试，必要时完整 `npm test` |
-| 长视频执行/合并 | 前端 timeline 测试 + `server.tests.test_video_projects`；人物迁移再加 `server.tests.test_character_migration` 与 Go operation schema 回归 |
+| 长视频执行/合并 | 前端 timeline/复刻测试 + `server.tests.test_video_projects`；人物迁移加 `test_character_migration`，复刻加 `test_replication`，两者都跑 Go operation schema 回归 |
 | GPU 调度/换声 | `server.tests.test_gpu_resources` + `test_comfy_tasks` + `test_voice`；有 GPU 时用锁定上游 revision 各跑真实样本 |
 | 启动/网关/部署 | ops + gateway 测试 + 生产构建 + 健康检查 |
 

@@ -25,6 +25,12 @@ class TimingTests(unittest.TestCase):
         for value in ['春风2','[Verse]春风','hello','']:
             with self.assertRaises(ValueError):lyric_lines(value)
         with self.assertRaises(ApiError):rewrite_parameters({'lyrics':'春风\n明月','original_lyrics':'风'})
+    def test_unwritten_audible_phrase_is_rejected_but_silence_is_allowed(self):
+        from server.lyrics_timing import validate_vocal_coverage
+        words=[{'start':0,'end':1},{'start':2,'end':3}]
+        with self.assertRaisesRegex(ValueError,'漏字'):validate_vocal_coverage(words,[.1]*150)
+        validate_vocal_coverage(words,[.1]*50+[0]*50+[.1]*50)
+        with self.assertRaisesRegex(ValueError,'漏字'):validate_vocal_coverage([{'start':0,'end':1}],[.1]*100)
     def test_transcript_breath_does_not_split_short_phrase(self):
         from server.lyrics_timing import merge_short_transcription_lines
         self.assertEqual(merge_short_transcription_lines(['月照入','心头','独醉相思愁','几时休']),['月照入心头','独醉相思愁','几时休'])

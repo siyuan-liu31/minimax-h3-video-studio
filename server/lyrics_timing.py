@@ -53,3 +53,26 @@ def merge_short_transcription_lines(lines):
         else:
             result.append(lines[i]);i+=1
     return result
+
+
+def validate_vocal_coverage(words, energy, frame_seconds=.02):
+    """Reject long, audible stretches left without any confirmed source words.
+
+    This is a missing-phrase guard, not an ASR accuracy score. Short breaths and
+    quiet reverb tails are allowed; it never fills missing words by guessing.
+    """
+    if not energy or not words:
+        raise ValueError('未检测到可用原唱')
+    ordered=sorted(energy)
+    threshold=max(1e-4, ordered[int((len(ordered)-1)*.75)]*.2)
+    gaps=[(0,words[0]['start'])]
+    gaps.extend((a['end'],b['start']) for a,b in zip(words,words[1:]))
+    gaps.append((words[-1]['end'],len(energy)*frame_seconds))
+    for start,end in gaps:
+        if end-start<.65:
+            continue
+        left=max(0,round((start+.12)/frame_seconds))
+        right=min(len(energy),round((end-.12)/frame_seconds))
+        audible=sum(v>threshold for v in energy[left:right])*frame_seconds
+        if audible>=.3:
+            raise ValueError(f'原词可能漏字：{start:.1f}–{end:.1f} 秒仍有人声却没有对应文字，请补齐原词后重试')

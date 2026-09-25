@@ -31,7 +31,7 @@ def align(job):
     import torch
     import soundfile as sf
     from qwen_asr import Qwen3ForcedAligner
-    from lyrics_timing import lyric_lines, line_bounds
+    from lyrics_timing import lyric_lines, line_bounds, validate_vocal_coverage
     r=job['runtime']; w=Path(job['work'])
     old,new=lyric_lines(job['original_lyrics']),lyric_lines(job['lyrics'])
     if len(old)!=len(new): raise ValueError('原词、新词句数不一致')
@@ -39,6 +39,11 @@ def align(job):
     rows=model.align(audio=str(w/'vocals.wav'),text=''.join(old),language='Chinese')[0]
     words=[{'text':x.text,'start':x.start_time,'end':x.end_time} for x in rows]
     bounds=line_bounds(old,words,sf.info(w/'vocals.wav').duration)
+    import numpy as np
+    voice,sr=sf.read(w/'vocals.wav',dtype='float32',always_2d=True)
+    size=round(sr*.02)
+    energy=[float(np.sqrt(np.mean(voice[i:i+size].astype('float64')**2))) for i in range(0,len(voice),size)]
+    validate_vocal_coverage(words,energy)
     (Path(job['output']).parent/'alignment.json').write_text(json.dumps({'original_lines':old,'target_lines':new,'words':words,'bounds':bounds},ensure_ascii=False))
 
 

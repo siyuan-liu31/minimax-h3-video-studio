@@ -626,7 +626,7 @@ GPU 租约终态、Comfy prompt 生命期、资产删除引用、API/CLI operati
 ### 2026-09-25：分句改词流水线
 
 - 新引擎 `yingsinger`：BSR 分离主唱/和声/伴奏 → Qwen3-ForcedAligner CPU 定位校正原词 → YingMusic-Singer-Plus 逐句生成 → 原时间轴混回纯伴奏。普通 ACE Cover 不再作为这一需求的方案。原有 SoulX 实现未改动。
-- `server/yingsinger.py` 定义请求/能力，`lyrics_timing.py` 严格验证逐字时间及逐行边界；不接受缺字、零时长、重叠、错行后继续生成。原词、新词须等行、中文汉字；1–180 秒歌曲，单句 0.4–20 秒，使用原唱参考。
+- `server/yingsinger.py` 定义请求/能力，`lyrics_timing.py` 严格验证逐字时间及逐行边界；不接受缺字、零时长、重叠、错行后继续生成；额外用分离人声能量检查明显未被原词覆盖的区间，并提示疑似漏词时间。原词、新词须等行、中文汉字；1–180 秒歌曲，单句 0.4–20 秒，使用原唱参考。
 - `yingsinger_worker.py` 协调 `lyrics_stage.py` 子进程，继承既有进程组和独占 GPU 租约。分离、CPU 对齐、生成按阶段加载释放，离线加载固定权重；配置 `H3_STUDIO_LYRICS_RUNTIME` 指向机器私有路径清单。详见 `docs/lyrics-rewrite.md`。
 - POST voice tasks、CLI `voice rewrite --engine yingsinger`、Agent operation schema、前端模式与历史同步支持；具备首句 preview、transcribe、三轨和 remix。校正草稿保留，不迁移旧任务。
 - 完成音频仅证明生成成功。新链路以实际分句样本、自动歌词复核、时间轴/伴奏摘要验收为依据；自动复核不能保证听感或所有新词准确，用户须先试听。

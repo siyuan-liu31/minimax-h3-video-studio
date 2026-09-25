@@ -184,6 +184,7 @@ test("ACE-Step cover submission keeps model, text, reference strength and result
     assert.equal(sent.audio_cover_strength, 0.8);
     assert.equal(result.coverSettings.caption, "pop");
     assert.equal(result.parameters.inference_cfg_rate, 7);
+    assert.deepEqual(Object.keys(result.parameters).sort(), ["diffusion_steps", "inference_cfg_rate", "seed"]);
     await assert.rejects(submitRewriteTask(sourceId, sourceId, "新词", "", parameters, true, "acestep"));
     await assert.rejects(submitRewriteTask(sourceId, sourceId, "字".repeat(4097), "", parameters, false, "acestep"));
   } finally { globalThis.fetch = previous; }

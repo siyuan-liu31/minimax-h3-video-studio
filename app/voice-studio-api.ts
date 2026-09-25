@@ -55,7 +55,8 @@ export function validateYingMusicParameters(value: YingMusicParameters): YingMus
 
 function parseParameters(raw: unknown, engine?: unknown): YingMusicParameters | undefined {
   if (!raw || typeof raw !== "object") return undefined;
-  const value = raw as Record<string, unknown>;
+  const input = raw as Record<string, unknown>;
+  const value = { diffusion_steps: input.diffusion_steps, inference_cfg_rate: input.inference_cfg_rate, seed: input.seed };
   try { return (engine === "soulx" || engine === "acestep") ? validateRewriteParameters(value as YingMusicParameters) : validateYingMusicParameters(value as YingMusicParameters); } catch { return undefined; }
 }
 

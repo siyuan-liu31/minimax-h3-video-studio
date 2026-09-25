@@ -19,7 +19,7 @@ import (
 const VoiceHelp = `Usage: h3ctl voice COMMAND
 
   convert SOURCE --reference AUDIO --engine vevo2|yingmusic [--steps 100] [--cfg 0.7] [--seed -1] [--keep-stems] [--echo=false] [--reverb=false] [--detach] [--to PATH]
-  rewrite SOURCE --engine soulx|acestep --lyrics-file FILE [--original-lyrics-file FILE] [--reference AUDIO] [--preview] [--steps 32] [--cfg 3] [--seed -1] [--detach] [--to PATH]
+  rewrite SOURCE --engine soulx|acestep --lyrics-file FILE [--original-lyrics-file FILE] [--reference AUDIO] [--preview] [--steps N] [--cfg N] [--cover-strength 1] [--caption TEXT] [--seed -1] [--detach] [--to PATH]
   status TASK
   wait TASK [--timeout DURATION] [--poll-interval DURATION]
   cancel TASK
@@ -27,6 +27,8 @@ const VoiceHelp = `Usage: h3ctl voice COMMAND
   download TASK --to PATH [--track mix|dry_vocal|accompaniment|remix] [--force]
   capabilities
 
+rewrite defaults to soulx (32 steps / CFG 3); acestep uses XL-SFT (50 steps / CFG 7).
+acestep accepts 10-180s sources and 4096-character lyrics; --preview is SoulX only.
 vevo2 uses the reviewed FM-only style-preserved VC/SVC path.
 yingmusic runs the official separation, singing conversion, and remix pipeline.
 For yingmusic, --seed -1 chooses a new seed on each task; the receipt records the effective seed.

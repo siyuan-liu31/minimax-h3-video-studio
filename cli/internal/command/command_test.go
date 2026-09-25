@@ -1929,6 +1929,13 @@ func TestVoiceRewriteReadsLyricsAndKeepsDefaultReference(t *testing.T) {
 	if submitted["engine"] != "soulx" || submitted["reference_asset_id"] != testAssetID || submitted["lyrics"] != "月光洒在窗前\n晚风吹过山间" || submitted["inference_cfg_rate"] != float64(3) {
 		t.Fatalf("payload: %v", submitted)
 	}
+	code, out, stderr = executeTest(t, []string{"--server", server.URL, "--json", "voice", "rewrite", "asset:" + testAssetID, "--engine", "acestep", "--lyrics-file", lyrics, "--cover-strength", "0.8", "--caption", "Chinese pop", "--detach"}, "")
+	if code != 0 {
+		t.Fatalf("%d %s %s", code, out, stderr)
+	}
+	if submitted["engine"] != "acestep" || submitted["diffusion_steps"] != float64(50) || submitted["inference_cfg_rate"] != float64(7) || submitted["audio_cover_strength"] != 0.8 || submitted["caption"] != "Chinese pop" {
+		t.Fatalf("ACE payload: %v", submitted)
+	}
 	for _, bad := range []string{"", string([]byte{0xff})} {
 		_ = os.WriteFile(lyrics, []byte(bad), 0600)
 		code, _, _ := executeTest(t, []string{"--server", server.URL, "voice", "rewrite", "asset:" + testAssetID, "--lyrics-file", lyrics, "--detach"}, "")

@@ -27,6 +27,9 @@ class AceStepEngine:
                 offload_to_cpu=False, offload_dit_to_cpu=False, vae_checkpoint="official")
             if not ok:
                 raise RuntimeError(status)
+            import torch
+            if self.handler.dtype != torch.bfloat16 or self.handler.quantization is not None:
+                raise RuntimeError("XL-SFT requires BF16 without quantization")
             self.lm = LLMHandler()  # Cover uses source audio; no LM weights are loaded.
 
     def run(self, request: dict) -> Path:

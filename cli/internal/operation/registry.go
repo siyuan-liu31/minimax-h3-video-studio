@@ -242,7 +242,7 @@ func buildDefinitions() map[string]Definition {
 	})
 
 	add("voice.rewrite", []string{"source", "lyrics"}, map[string]any{
-		"engine": enum("soulx", "acestep"), "caption": map[string]any{"type": "string", "maxLength": 512}, "audio_cover_strength": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+		"engine": enum("soulx", "acestep", "yingsinger"), "caption": map[string]any{"type": "string", "maxLength": 512}, "audio_cover_strength": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
 		"source": stringRule, "reference": stringRule, "preview": boolRule,
 		"lyrics":             map[string]any{"type": "string", "minLength": 1, "maxLength": 10000},
 		"original_lyrics":    map[string]any{"type": "string", "maxLength": 10000},
@@ -252,7 +252,7 @@ func buildDefinitions() map[string]Definition {
 		"request_id":         idRule, "wait": boolRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0),
 		"download": stringRule, "download_track": enum("mix", "dry_vocal", "accompaniment"), "force": boolRule,
 	})
-	add("voice.transcribe", []string{"source"}, map[string]any{"source": stringRule, "request_id": idRule, "wait": boolRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0)})
+	add("voice.transcribe", []string{"source"}, map[string]any{"engine": enum("soulx", "yingsinger"), "source": stringRule, "request_id": idRule, "wait": boolRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0)})
 	add("voice.remix", []string{"task_id"}, map[string]any{"task_id": idRule, "vocal_gain_db": map[string]any{"type": "number", "minimum": -18, "maximum": 12}, "accompaniment_gain_db": map[string]any{"type": "number", "minimum": -18, "maximum": 12}})
 	add("voice.get", []string{"task_id"}, map[string]any{"task_id": idRule})
 	add("voice.wait", []string{"task_id"}, map[string]any{"task_id": idRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0)})

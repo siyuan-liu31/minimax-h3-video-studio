@@ -366,6 +366,9 @@ def _engine(args: argparse.Namespace):
     cache.mkdir(parents=True, exist_ok=True)
     if args.engine == "vevo2":
         return Vevo2Engine(repo, cache, args.device, args.model_revision)
+    if args.engine == "yingsinger":
+        from yingsinger_worker import YingSingerEngine
+        return YingSingerEngine(args.lyrics_runtime, args.device)
     if args.engine == "acestep":
         from acestep_worker import AceStepEngine
         return AceStepEngine(repo, Path(args.acestep_models).resolve(), args.device)
@@ -383,13 +386,14 @@ def _engine(args: argparse.Namespace):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--engine", choices=("vevo2", "yingmusic", "soulx", "acestep"), required=True)
+    parser.add_argument("--engine", choices=("vevo2", "yingmusic", "soulx", "acestep", "yingsinger"), required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--cache-root", required=True)
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--model-revision", default="")
     parser.add_argument("--separator-config", default="")
     parser.add_argument("--separator-checkpoint", default="")
+    parser.add_argument("--lyrics-runtime", default="")
     parser.add_argument("--soulx-models", default="")
     parser.add_argument("--acestep-models", default="")
     parser.add_argument("--svc-config", default="")

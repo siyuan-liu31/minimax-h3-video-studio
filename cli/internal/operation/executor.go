@@ -183,7 +183,7 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 		var submitted map[string]any
 		var err error
 		if name == "voice.transcribe" {
-			submitted, err = s.SubmitVoice(ctx, "soulx", require("source"), require("source"), stringValue(input["request_id"], ""), map[string]any{"operation": "transcribe"})
+			submitted, err = s.SubmitVoice(ctx, stringValue(input["engine"], "soulx"), require("source"), require("source"), stringValue(input["request_id"], ""), map[string]any{"operation": "transcribe"})
 		} else if name == "voice.rewrite" {
 			submitted, err = s.SubmitRewrite(ctx, input, stringValue(input["request_id"], ""))
 		} else {

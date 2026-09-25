@@ -451,7 +451,7 @@ default; use `--detach` to submit without keeping the CLI connected.
 ```bash
 # Chinese lyric rewrite with SoulX; reference defaults to the source voice.
 h3ctl voice rewrite ./song.wav --lyrics-file ./new-lyrics.txt \
-  --original-lyrics-file ./original-lyrics.txt --steps 32 --cfg 3 --seed 42 \
+  --original-lyrics-file ./original-lyrics.txt --steps 64 --cfg 3 --seed 42 \
   --to ./rewritten.wav
 
 # Speech or singing: Amphion Vevo2 FM-only, style-preserved VC/SVC.
@@ -649,3 +649,10 @@ h3ctl voice rewrite asset:ASSET_ID --engine acestep --lyrics-file new-lyrics.txt
 默认 50 步、CFG 7。CFG 接受 1–10，1 关闭 CFG，大于 1 才启用。普通 Cover 会重新生成旋律、伴奏和人声，尚未通过保留原曲精准换词验收；生成成功仅代表音频文件有效。
 仅返回 `mix`，不支持 `--preview` 或分轨重新混音；原曲和结果仍可 A/B 播放。
 取消、轮询、下载及重启恢复沿用持久 voice 任务合同。
+
+### 分句改词（中文）
+
+`h3ctl voice rewrite SOURCE --engine yingsinger --lyrics-file NEW.txt --original-lyrics-file ORIGINAL.txt --preview`
+使用校正原词逐句定位，新词须等行；去掉 `--preview` 生成完整片段。
+使用原唱参考、固定原伴奏，支持 1–180 秒；参数建议 `--steps 64 --cfg 3`。
+接口与部署边界见 [分句改词](lyrics-rewrite.md)。

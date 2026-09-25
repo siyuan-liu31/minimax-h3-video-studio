@@ -82,6 +82,7 @@ class Config:
     gpu_poll_seconds: int = 2
     max_active_voice_tasks: int = 16
     voice_worker_start_seconds: int = 20 * 60
+    lyrics_runtime: str = ""
     acestep_root: str = ""
     acestep_python: str = ""
     acestep_models: str = ""
@@ -225,6 +226,7 @@ class Config:
             vevo2_model_revision=os.environ.get(
                 "H3_STUDIO_VEVO2_MODEL_REVISION", "2674843cbaa50aa89ee7ccaf5bb15d6ccf46c6c8",
             ).strip(),
+            lyrics_runtime=os.environ.get("H3_STUDIO_LYRICS_RUNTIME", "").strip(),
             acestep_root=os.environ.get("H3_STUDIO_ACESTEP_ROOT", "").strip(),
             acestep_python=os.environ.get("H3_STUDIO_ACESTEP_PYTHON", "").strip(),
             acestep_models=os.environ.get("H3_STUDIO_ACESTEP_MODELS", "").strip(),

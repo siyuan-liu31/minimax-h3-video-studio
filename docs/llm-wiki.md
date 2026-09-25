@@ -622,3 +622,11 @@ GPU 租约终态、Comfy prompt 生命期、资产删除引用、API/CLI operati
 - 新 ACE 请求的 `inference_cfg_rate` 限制为 1–10；1 关闭 CFG，>1 启用。SoulX 的原有范围不变，历史 ACE <1 记录继续可读，复用后须手动修正再提交。
 - `app/voice-studio-api.ts::request` 仅对 GET 控制面读取设 10 秒超时，覆盖响应体读取；保留外部取消并清理计时器。音频上传不使用此短超时，写请求不自动重试，避免重复提交。
 - `app/voice-studio.tsx` 对加载/错误状态和活动任务持续重试，任务读取单请求在途；能力检测失败时自动重试，“刷新”同时恢复任务与能力。任务网络错误独立于提交错误，恢复成功会清除读取错误。
+
+### 2026-09-25：分句改词流水线
+
+- 新引擎 `yingsinger`：BSR 分离主唱/和声/伴奏 → Qwen3-ForcedAligner CPU 定位校正原词 → YingMusic-Singer-Plus 逐句生成 → 原时间轴混回纯伴奏。普通 ACE Cover 不再作为这一需求的方案。原有 SoulX 实现未改动。
+- `server/yingsinger.py` 定义请求/能力，`lyrics_timing.py` 严格验证逐字时间及逐行边界；不接受缺字、零时长、重叠、错行后继续生成。原词、新词须等行、中文汉字；1–180 秒歌曲，单句 0.4–20 秒，使用原唱参考。
+- `yingsinger_worker.py` 协调 `lyrics_stage.py` 子进程，继承既有进程组和独占 GPU 租约。分离、CPU 对齐、生成按阶段加载释放，离线加载固定权重；配置 `H3_STUDIO_LYRICS_RUNTIME` 指向机器私有路径清单。详见 `docs/lyrics-rewrite.md`。
+- POST voice tasks、CLI `voice rewrite --engine yingsinger`、Agent operation schema、前端模式与历史同步支持；具备首句 preview、transcribe、三轨和 remix。校正草稿保留，不迁移旧任务。
+- 完成音频仅证明生成成功。新链路以实际分句样本、自动歌词复核、时间轴/伴奏摘要验收为依据；自动复核不能保证听感或所有新词准确，用户须先试听。

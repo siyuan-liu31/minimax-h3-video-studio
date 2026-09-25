@@ -1,6 +1,6 @@
 import { remoteAssetToLibraryItem, type LibraryAsset } from "./studio-library.ts";
 
-export type VoiceEngine = "vevo2" | "yingmusic" | "soulx" | "acestep";
+export type VoiceEngine = "vevo2" | "yingmusic" | "soulx" | "acestep" | "yingsinger";
 export type YingMusicParameters = { diffusion_steps: number; inference_cfg_rate: number; seed: number };
 export type YingMusicOutputOptions = { include_stems: boolean; echo: boolean; reverb: boolean };
 export type VoiceTrack = "mix" | "dry_vocal" | "accompaniment" | "remix";
@@ -33,7 +33,7 @@ export type VoiceTask = {
 
 const ID = /^[0-9a-f]{32}$/;
 const AUDIO_EXTENSION = /\.(wav|flac|ogg|mp3)$/i;
-const ENGINES = new Set<VoiceEngine>(["vevo2", "yingmusic", "soulx", "acestep"]);
+const ENGINES = new Set<VoiceEngine>(["vevo2", "yingmusic", "soulx", "acestep", "yingsinger"]);
 const STATUSES = new Set<VoiceTask["status"]>(["queued", "running", "cancelling", "completed", "failed", "canceled"]);
 const TRACKS = new Set<VoiceTrack>(["mix", "dry_vocal", "accompaniment", "remix"]);
 
@@ -57,7 +57,7 @@ function parseParameters(raw: unknown, engine?: unknown): YingMusicParameters | 
   if (!raw || typeof raw !== "object") return undefined;
   const input = raw as Record<string, unknown>;
   const value = { diffusion_steps: input.diffusion_steps, inference_cfg_rate: input.inference_cfg_rate, seed: input.seed };
-  try { return (engine === "soulx" || engine === "acestep") ? validateRewriteParameters(value as YingMusicParameters) : validateYingMusicParameters(value as YingMusicParameters); } catch { return undefined; }
+  try { return (engine === "soulx" || engine === "acestep" || engine === "yingsinger") ? validateRewriteParameters(value as YingMusicParameters) : validateYingMusicParameters(value as YingMusicParameters); } catch { return undefined; }
 }
 
 export function isSupportedVoiceAudio(file: Pick<File, "name" | "type">): boolean {
@@ -217,10 +217,11 @@ export function validateRewriteParameters(value: YingMusicParameters): YingMusic
   return value;
 }
 
-export async function submitRewriteTask(sourceAssetId: string, referenceAssetId: string, lyrics: string, originalLyrics: string, parameters: YingMusicParameters, preview = false, engine: "soulx" | "acestep" = "soulx", coverSettings = { caption: "", audio_cover_strength: 1 }): Promise<VoiceTask> {
+export async function submitRewriteTask(sourceAssetId: string, referenceAssetId: string, lyrics: string, originalLyrics: string, parameters: YingMusicParameters, preview = false, engine: "soulx" | "acestep" | "yingsinger" = "soulx", coverSettings = { caption: "", audio_cover_strength: 1 }): Promise<VoiceTask> {
   if (!ID.test(sourceAssetId) || !ID.test(referenceAssetId)) throw new Error("请选择原音频与参考音频");
   if (!lyrics.trim() || [...lyrics].length > 10000 || [...originalLyrics].length > 10000 || lyrics.includes("\0") || originalLyrics.includes("\0")) throw new Error("请填写新歌词，歌词最多 10000 字");
   validateRewriteParameters(parameters);
+  if (engine === "yingsinger" && (!originalLyrics.trim() || originalLyrics.split(/\n/).filter(line => line.trim()).length !== lyrics.split(/\n/).filter(line => line.trim()).length)) throw new Error("原词与新词必须逐句对应、行数相同");
   if (engine === "acestep" && parameters.inference_cfg_rate < 1) throw new Error("ACE-Step 引导强度须为 1–10；1 关闭 CFG，建议先用 7");
   if (engine === "acestep" && (preview || [...lyrics].length > 4096 || [...coverSettings.caption].length > 512 || !Number.isFinite(coverSettings.audio_cover_strength) || coverSettings.audio_cover_strength < 0 || coverSettings.audio_cover_strength > 1)) throw new Error("ACE-Step 歌词最多 4096 字，参考强度为 0–1，不支持首段试听");
   const body = await request("/api/voice/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -230,10 +231,10 @@ export async function submitRewriteTask(sourceAssetId: string, referenceAssetId:
   return task;
 }
 
-export async function transcribeVoiceLyrics(sourceAssetId: string): Promise<VoiceTask> {
+export async function transcribeVoiceLyrics(sourceAssetId: string, engine: "soulx" | "yingsinger" = "soulx"): Promise<VoiceTask> {
   if (!ID.test(sourceAssetId)) throw new Error("请先选择歌曲");
   const body = await request("/api/voice/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ engine: "soulx", operation: "transcribe", source_asset_id: sourceAssetId, request_id: crypto.randomUUID().replaceAll("-", "") }) });
+    body: JSON.stringify({ engine, operation: "transcribe", source_asset_id: sourceAssetId, request_id: crypto.randomUUID().replaceAll("-", "") }) });
   const task = parseVoiceTask(body);
   if (!task) throw new Error("服务端未返回有效的识别任务");
   return task;

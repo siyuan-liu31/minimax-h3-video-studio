@@ -280,10 +280,10 @@ func (s *Service) MuxAudio(ctx context.Context, video, audio string, body map[st
 }
 
 func (s *Service) SubmitVoice(ctx context.Context, engine, source, reference, requestID string, tuning ...map[string]any) (map[string]any, error) {
-	if engine != "vevo2" && engine != "yingmusic" && engine != "soulx" && engine != "acestep" {
-		return nil, contract.NewError("invalid_argument", "voice engine must be vevo2, yingmusic, soulx or acestep")
+	if engine != "vevo2" && engine != "yingmusic" && engine != "soulx" && engine != "acestep" && engine != "yingsinger" {
+		return nil, contract.NewError("invalid_argument", "voice engine must be vevo2, yingmusic, soulx, yingsinger or acestep")
 	}
-	if len(tuning) > 1 || (engine != "yingmusic" && engine != "soulx" && engine != "acestep" && len(tuning) > 0 && len(tuning[0]) > 0) {
+	if len(tuning) > 1 || (engine != "yingmusic" && engine != "soulx" && engine != "acestep" && engine != "yingsinger" && len(tuning) > 0 && len(tuning[0]) > 0) {
 		return nil, contract.NewError("invalid_argument", "voice tuning is supported only for yingmusic, soulx or acestep")
 	}
 	if requestID == "" {
@@ -1084,13 +1084,27 @@ func stringValue(value any, fallback string) string {
 // SubmitRewrite uses the same durable voice queue and download contract.
 func (s *Service) SubmitRewrite(ctx context.Context, input map[string]any, requestID string) (map[string]any, error) {
 	engine := stringValue(input["engine"], "soulx")
-	if engine != "soulx" && engine != "acestep" {
-		return nil, contract.NewError("invalid_argument", "rewrite engine must be soulx or acestep")
+	if engine != "soulx" && engine != "acestep" && engine != "yingsinger" {
+		return nil, contract.NewError("invalid_argument", "rewrite engine must be soulx, yingsinger or acestep")
 	}
 	lyrics := stringValue(input["lyrics"], "")
 	original := stringValue(input["original_lyrics"], "")
 	if strings.TrimSpace(lyrics) == "" || strings.ContainsRune(lyrics, 0) || strings.ContainsRune(original, 0) || !utf8.ValidString(lyrics) || utf8.RuneCountInString(lyrics) > 10000 || !utf8.ValidString(original) || utf8.RuneCountInString(original) > 10000 {
 		return nil, contract.NewError("invalid_argument", "lyrics must be UTF-8, nonempty and at most 10000 characters")
+	}
+	if engine == "yingsinger" {
+		countLines := func(text string) int {
+			count := 0
+			for _, line := range strings.Split(text, "\n") {
+				if strings.TrimSpace(line) != "" {
+					count++
+				}
+			}
+			return count
+		}
+		if countLines(original) == 0 || countLines(original) != countLines(lyrics) {
+			return nil, contract.NewError("invalid_argument", "yingsinger requires corrected original lyrics and matching line counts")
+		}
 	}
 	if engine == "acestep" && utf8.RuneCountInString(lyrics) > 4096 {
 		return nil, contract.NewError("invalid_argument", "ACE-Step lyrics exceed 4096 characters")
@@ -1124,6 +1138,9 @@ func (s *Service) SubmitRewrite(ctx context.Context, input map[string]any, reque
 	copyOptional(tuning, input, "preview")
 	for key, limits := range map[string][3]float64{"diffusion_steps": {32, 16, 100}, "inference_cfg_rate": {3, 0, 10}, "seed": {-1, -1, 4294967295}} {
 		value := limits[0]
+		if engine == "yingsinger" && key == "diffusion_steps" {
+			value = 64
+		}
 		if engine == "acestep" {
 			if key == "diffusion_steps" {
 				value = 50

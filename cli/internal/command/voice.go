@@ -19,7 +19,7 @@ import (
 const VoiceHelp = `Usage: h3ctl voice COMMAND
 
   convert SOURCE --reference AUDIO --engine vevo2|yingmusic [--steps 100] [--cfg 0.7] [--seed -1] [--keep-stems] [--echo=false] [--reverb=false] [--detach] [--to PATH]
-  rewrite SOURCE --engine soulx|acestep --lyrics-file FILE [--original-lyrics-file FILE] [--reference AUDIO] [--preview] [--steps N] [--cfg N] [--cover-strength 1] [--caption TEXT] [--seed -1] [--detach] [--to PATH]
+  rewrite SOURCE --engine soulx|yingsinger|acestep --lyrics-file FILE [--original-lyrics-file FILE] [--reference AUDIO] [--preview] [--steps N] [--cfg N] [--cover-strength 1] [--caption TEXT] [--seed -1] [--detach] [--to PATH]
   status TASK
   wait TASK [--timeout DURATION] [--poll-interval DURATION]
   cancel TASK
@@ -29,7 +29,8 @@ const VoiceHelp = `Usage: h3ctl voice COMMAND
 
 rewrite defaults to soulx (32 steps / CFG 3); acestep uses XL-SFT (50 steps / CFG 7).
 acestep is experimental whole-song Cover, not precise lyric replacement. CFG: 1..10 (1 disables CFG).
-acestep accepts 10-180s sources and 4096-character lyrics; --preview is SoulX only.
+acestep accepts 10-180s sources and 4096-character lyrics; --preview supports SoulX and yingsinger.
+yingsinger requires corrected original lyrics, matching line counts, and uses the source voice.
 vevo2 uses the reviewed FM-only style-preserved VC/SVC path.
 yingmusic runs the official separation, singing conversion, and remix pipeline.
 For yingmusic, --seed -1 chooses a new seed on each task; the receipt records the effective seed.
@@ -205,7 +206,7 @@ func voiceDownloadPath(taskID, track string) string {
 // runVoiceRewrite keeps the CLI file handling separate from the reusable API operation.
 func (r *Runner) runVoiceRewrite(ctx context.Context, args []string) (any, error) {
 	set := newFlags("voice rewrite")
-	engine := set.String("engine", "soulx", "soulx or acestep (XL-SFT)")
+	engine := set.String("engine", "soulx", "soulx, yingsinger (phrase lyrics) or acestep (XL-SFT)")
 	caption := set.String("caption", "", "ACE-Step music style description")
 	strength := set.Float64("cover-strength", 1, "ACE-Step source influence 0..1")
 	preview := set.Bool("preview", false, "generate first segment only")
@@ -255,6 +256,9 @@ func (r *Runner) runVoiceRewrite(ctx context.Context, args []string) (any, error
 	input := map[string]any{"engine": *engine, "preview": *preview, "source": set.Arg(0), "reference": ref, "lyrics": lyrics, "original_lyrics": original, "diffusion_steps": float64(*steps), "inference_cfg_rate": *cfg, "seed": float64(*seed)}
 	visited := map[string]bool{}
 	set.Visit(func(f *flag.Flag) { visited[f.Name] = true })
+	if *engine == "yingsinger" && !visited["steps"] {
+		input["diffusion_steps"] = float64(64)
+	}
 	if *engine == "acestep" {
 		if !visited["steps"] {
 			input["diffusion_steps"] = float64(50)

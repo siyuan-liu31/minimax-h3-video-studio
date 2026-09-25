@@ -283,6 +283,8 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 		{"voice.convert", fmt.Sprintf(`{"engine":"vevo2","source":"asset:%s","reference":"asset:%s"}`, idA, idB), "POST", "/api/voice/tasks", "engine", "vevo2", 1},
 		{"voice.rewrite", fmt.Sprintf(`{"engine":"acestep","source":"asset:%s","lyrics":"新词","audio_cover_strength":0.8}`, idA), "POST", "/api/voice/tasks", "engine", "acestep", 1},
 		{"voice.transcribe", fmt.Sprintf(`{"source":"asset:%s"}`, idA), "POST", "/api/voice/tasks", "operation", "transcribe", 1},
+		{"voice.transcribe", fmt.Sprintf(`{"source":"asset:%s","engine":"yingsinger"}`, idA), "POST", "/api/voice/tasks", "engine", "yingsinger", 1},
+		{"voice.rewrite", fmt.Sprintf(`{"engine":"yingsinger","source":"asset:%s","lyrics":"新歌词","original_lyrics":"原歌词","preview":true}`, idA), "POST", "/api/voice/tasks", "engine", "yingsinger", 1},
 		{"voice.remix", fmt.Sprintf(`{"task_id":%q,"vocal_gain_db":-3,"accompaniment_gain_db":3}`, idC), "POST", "/api/voice/tasks/" + idC + "/remix", "vocal_gain_db", float64(-3), 1},
 		{"voice.get", fmt.Sprintf(`{"task_id":%q}`, idC), "GET", "/api/voice/tasks/" + idC, "", nil, 1},
 		{"voice.wait", fmt.Sprintf(`{"task_id":%q,"timeout_seconds":1,"poll_seconds":0.001}`, idC), "GET", "/api/voice/tasks/" + idC, "", nil, 1},

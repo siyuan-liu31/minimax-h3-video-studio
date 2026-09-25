@@ -223,3 +223,24 @@ test("caller cancellation is preserved instead of reported as connection timeout
     await assert.rejects(pending, { name: "AbortError" });
   } finally { globalThis.fetch = previous; }
 });
+
+test("phrase rewrite sends corrected lines and routes recognition to the selected pipeline", async () => {
+  const { submitRewriteTask, transcribeVoiceLyrics } = await import("../app/voice-studio-api.ts");
+  const oldFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body); requests.push(body);
+    return reply({ ...task, engine: body.engine, operation: body.operation ?? "convert", preview: body.preview });
+  };
+  try {
+    await assert.rejects(() => submitRewriteTask(sourceId, sourceId, "春风\n明月", "旧词", {diffusion_steps:32,inference_cfg_rate:3,seed:666}, true, "yingsinger"), /逐句对应/);
+    assert.equal(requests.length, 0);
+    const result = await submitRewriteTask(sourceId, sourceId, "春风\n明月", "旧词\n原词", {diffusion_steps:32,inference_cfg_rate:3,seed:666}, true, "yingsinger");
+    assert.equal(result.engine, "yingsinger");
+    assert.equal(requests[0].original_lyrics, "旧词\n原词");
+    assert.equal(requests[0].preview, true);
+    await transcribeVoiceLyrics(sourceId, "yingsinger");
+    assert.equal(requests[1].engine, "yingsinger");
+    assert.equal(requests[1].operation, "transcribe");
+  } finally { globalThis.fetch = oldFetch; }
+});

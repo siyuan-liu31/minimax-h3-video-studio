@@ -223,7 +223,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   let parametersValid = true;
   try { currentParameters(); } catch { parametersValid = false; }
   const aceValid = engine !== "acestep" || (rewriteParameters.inference_cfg_rate >= 1 && [...lyrics].length <= 4096 && Number.isFinite(coverSettings.audio_cover_strength) && coverSettings.audio_cover_strength >= 0 && coverSettings.audio_cover_strength <= 1 && (audioAssets.find(asset => asset.id === sourceId)?.media.duration ?? 0) >= 10 && (audioAssets.find(asset => asset.id === sourceId)?.media.duration ?? 0) <= 180);
-  const canSubmit = (engine !== "yingsinger" || (originalLyrics.trim() && originalLyrics.split("\n").filter(line => line.trim()).length === lyrics.split("\n").filter(line => line.trim()).length)) && aceValid && capabilityState === "ready" && selectedCapability?.available === true && (engine !== "yingmusic" || Boolean(selectedCapability.tuning)) && (!isRewrite || (Boolean(selectedCapability.tuning) && Boolean(lyrics.trim()) && [...lyrics].length <= 10000 && [...originalLyrics].length <= 10000)) && parametersValid && audioAssets.some((asset) => asset.id === sourceId) && (isRewrite && (!rewriteUseReference || engine === "yingsinger") || audioAssets.some((asset) => asset.id === referenceId)) && !uploading && !microphonePending && !submitting && (!isRewrite || !transcriptionBusy);
+  const canSubmit = (engine !== "yingsinger" || (originalLyrics.trim() && originalLyrics.split("\n").filter(line => line.trim()).length === lyrics.split("\n").filter(line => line.trim()).length)) && aceValid && capabilityState === "ready" && selectedCapability?.available === true && (engine !== "yingmusic" || Boolean(selectedCapability.tuning)) && (!isRewrite || (Boolean(selectedCapability.tuning) && Boolean(lyrics.trim()) && [...lyrics].length <= 10000 && [...originalLyrics].length <= 10000)) && parametersValid && audioAssets.some((asset) => asset.id === sourceId) && (isRewrite && !rewriteUseReference || audioAssets.some((asset) => asset.id === referenceId)) && !uploading && !microphonePending && !submitting && (!isRewrite || !transcriptionBusy);
 
   async function upload(slot: Slot, file: File): Promise<boolean> {
     if (uploading) return false;
@@ -250,7 +250,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
     setSubmitting(true); setError("");
     try {
       const task = isRewrite
-        ? await submitRewriteTask(sourceId, rewriteUseReference && engine !== "yingsinger" ? referenceId : sourceId, lyrics, originalLyrics, rewriteParameters, preview, engine as "soulx" | "acestep" | "yingsinger", coverSettings)
+        ? await submitRewriteTask(sourceId, rewriteUseReference ? referenceId : sourceId, lyrics, originalLyrics, rewriteParameters, preview, engine as "soulx" | "acestep" | "yingsinger", coverSettings)
         : await submitVoiceTask(engine, sourceId, referenceId, currentParameters(), engine === "yingmusic" && selectedCapability?.outputOptions ? { include_stems: includeStems, echo: echoEnabled, reverb: reverbEnabled } : undefined);
       refreshRequestRef.current += 1;
       setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
@@ -298,7 +298,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
       {isRewrite && <>
         <section className="lyrics-edit-section" aria-label="歌词对照编辑">
           <div className="lyrics-step"><b>2</b><strong>识别并修改歌词</strong><button type="button" disabled={!sourceId || !selectedCapability?.available || !capabilities.some(item => item.id === (engine === "yingsinger" ? "yingsinger" : "soulx") && item.available && item.transcription) || transcriptionBusy || uploading !== null} onClick={() => void recognize(sourceId)}>{transcriptionBusy ? "正在识别…" : transcription ? "重新识别原词" : "识别原歌词"}</button></div>
-          <p className="lyrics-hint">{engine === "acestep" ? "直接在右侧填写完整新歌词；左侧原词仅供对照，不参与 ACE-Step 生成。可选用 SoulX 识别辅助填写。" : engine === "yingsinger" ? "原词与新词逐行对应，一行一个乐句。先校正左侧原词，再试听首句；生成仅替换人声，伴奏沿用分离原轨。当前使用原唱参考，支持 1–180 秒中文音频。" : "原词自动填入右侧，直接修改想替换的句子。识别可能有误，可在左侧校正。"}</p>
+          <p className="lyrics-hint">{engine === "acestep" ? "直接在右侧填写完整新歌词；左侧原词仅供对照，不参与 ACE-Step 生成。可选用 SoulX 识别辅助填写。" : engine === "yingsinger" ? "原词与新词逐行对应，一行一个乐句。先校正左侧原词，再试听首句；生成仅替换人声，伴奏沿用分离原轨。支持 1–180 秒中文音频，可在高级设置中选择其他参考音色。" : "原词自动填入右侧，直接修改想替换的句子。识别可能有误，可在左侧校正。"}</p>
           {transcriptionBusy && <div role="status" className="lyrics-recognition-status">{transcription?.status === "queued" ? "歌词识别正在排队，完成后自动填入。" : "正在分离人声并识别歌词，请稍候…"}</div>}
           {transcription?.error && <p role="alert" className="voice-error">{transcription.error}</p>}
           <div className="lyrics-columns">
@@ -310,9 +310,10 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
           <small>每行对应一句，字数越接近原词，节奏通常越自然。</small>
         </section>
         <details className="voice-tuning lyrics-advanced"><summary>高级设置 · 音色与生成参数</summary>
-          <label className="voice-effect-option"><input type="checkbox" disabled={engine === "yingsinger"} checked={engine !== "yingsinger" && rewriteUseReference} onChange={event => setRewriteUseReference(event.target.checked)}/>使用其他参考音色</label>
+          <label className="voice-effect-option"><input type="checkbox" checked={rewriteUseReference} onChange={event => setRewriteUseReference(event.target.checked)}/>使用其他参考音色</label>
           {!rewriteUseReference && <small>{engine === "acestep" ? "参考原歌曲；不保证完全复刻原唱音色。" : "当前使用原唱音色，无需上传参考音频。"}</small>}
-          {rewriteUseReference && engine !== "yingsinger" && <AudioSlot slot="reference" label="参考音频" selectedId={referenceId} assets={audioAssets} uploading={uploading !== null} onSelect={setReferenceId} onFile={file => void upload("reference", file)} onError={setError}/>}
+          {rewriteUseReference && <AudioSlot slot="reference" label="参考音频" selectedId={referenceId} assets={audioAssets} uploading={uploading !== null} onSelect={setReferenceId} onFile={file => void upload("reference", file)} onError={setError}/>}
+          {engine === "yingsinger" && rewriteUseReference && <small>上传 3–20 秒清晰中文人声或清唱，尽量避免和声与混响。系统自动分离并识别参考人声，用其音色逐句演唱新词；旋律与伴奏仍取自原歌曲。先试听第一段确认效果。</small>}
           {engine === "acestep" && <div className="voice-tuning-fields"><label>曲风描述（可选）<input maxLength={512} value={coverSettings.caption} onChange={event => setCoverSettings(value => ({ ...value, caption: event.target.value }))}/></label><label>原曲参考强度<input type="number" min="0" max="1" step="0.05" value={coverSettings.audio_cover_strength} onChange={event => setCoverSettings(value => ({ ...value, audio_cover_strength: Number(event.target.value) }))}/><small>0–1；降低后会减少原曲约束，可能变成另一首曲子，不是只降低原唱音量。</small></label></div>}
           <div className="voice-tuning-fields">
             <label>采样步数<input type="number" min="16" max="100" value={rewriteParameters.diffusion_steps} onChange={event => setRewriteParameters(value => ({ ...value, diffusion_steps: Number(event.target.value) }))}/></label>
@@ -364,7 +365,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
           <p><span>{STAGE_LABELS[task.stage] ?? task.stage}</span>{task.status === "queued" && typeof task.queuePosition === "number" && <> · <span>{`队列第 ${task.queuePosition} 位`}</span></>}{task.queueReason && <> · <span>{QUEUE_REASONS[task.queueReason] ?? task.queueReason}</span></>}</p>
           {task.error && <p className="voice-task-error">{task.error}</p>}
           {task.engine === "acestep" && task.status === "completed" && <p className="lyrics-hint">音频文件已生成；歌词与旋律未经效果验收，请对比原曲试听。</p>}
-          {task.status === "completed" && <VoiceTaskResult task={task} source={audioAssets.find(asset => asset.id === task.sourceAssetId)} onUpdated={updated => { refreshRequestRef.current += 1; setTasks(current => current.map(item => item.id === updated.id ? updated : item)); }}/>}
+          {task.status === "completed" && <VoiceTaskResult onAssetCreated={onAssetCreated} task={task} source={audioAssets.find(asset => asset.id === task.sourceAssetId)} onUpdated={updated => { refreshRequestRef.current += 1; setTasks(current => current.map(item => item.id === updated.id ? updated : item)); }}/>}
           <div className="voice-task-actions">{["queued", "running", "cancelling"].includes(task.status) ? <button type="button" disabled={Boolean(actionId) || task.status === "cancelling"} onClick={() => void act(task, "cancel")}>取消任务</button> : <button type="button" disabled={Boolean(actionId)} onClick={() => void act(task, "delete")}>删除记录</button>}</div>
         </article>)}
       </section>

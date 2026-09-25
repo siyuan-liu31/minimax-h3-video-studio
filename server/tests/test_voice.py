@@ -274,6 +274,35 @@ class VoiceTaskTests(unittest.TestCase):
         self.assertFalse(unavailable["available"])
         self.assertIn("repository", unavailable["missing"])
 
+    def test_save_asset_is_per_track_content_and_rolls_back_metadata_failure(self) -> None:
+        from unittest.mock import Mock
+        body = {"engine": "yingmusic", "source_asset_id": "a"*32, "reference_asset_id": "b"*32,
+                "output_options": {"include_stems": True}}
+        with patch("server.voice.voice_capability", return_value={"available": True}):
+            task = self.wait_terminal(self.manager.submit(body)["id"])
+        imported = {}
+        def import_file(path, **kwargs):
+            asset = {"id": str(len(imported)+1)*32, "kind": "audio"}
+            imported[asset["id"]] = asset
+            path.unlink()
+            return asset
+        self.assets.import_file = Mock(side_effect=import_file)
+        self.assets.used_bytes = Mock(return_value=0)
+        self.assets.public_metadata = lambda value: value
+        self.assets.delete = Mock()
+        old_get = self.assets.get
+        self.assets.get = lambda key: imported[key] if key in imported else old_get(key)
+        first = self.manager.save_asset(task['id'], {'track':'mix'})
+        self.assertTrue(self.manager.output_path(task['id']).is_file())
+        second = self.manager.save_asset(task['id'], {'track':'mix'})
+        self.assertEqual(first['asset'], second['asset']);self.assertTrue(second['reused'])
+        self.assertEqual(self.assets.import_file.call_count,1)
+        with patch.object(self.manager.store,'put',side_effect=OSError('write failed')):
+            with self.assertRaises(OSError):self.manager.save_asset(task['id'], {'track':'dry_vocal'})
+        self.assets.delete.assert_called_once()
+        with self.assertRaises(ApiError):self.manager.save_asset(task['id'], {'track':'../../outside'})
+        self.assertFalse(list(self.manager.output_root.rglob('asset-import-*')))
+
     def test_yingmusic_requires_every_runtime_file(self) -> None:
         repo = self.config.data_root / "yingmusic"
         (repo / "accom_separation").mkdir(parents=True)

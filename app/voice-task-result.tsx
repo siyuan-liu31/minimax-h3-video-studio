@@ -2,11 +2,12 @@
 /* eslint-disable jsx-a11y/media-has-caption */
 import { useRef, useState } from "react";
 import type { LibraryAsset } from "./studio-library";
-import { remixVoiceTask, voiceDownloadUrl, voicePreviewUrl, type VoiceTask, type VoiceTrack } from "./voice-studio-api";
+import { saveVoiceAsset, remixVoiceTask, voiceDownloadUrl, voicePreviewUrl, type VoiceTask, type VoiceTrack } from "./voice-studio-api";
 const LABELS: Record<VoiceTrack, string> = { mix: "生成混音", dry_vocal: "换声干声", accompaniment: "原伴奏", remix: "调整后的混音" };
 
-export default function VoiceTaskResult({ task, source, onUpdated }: { task: VoiceTask; source?: LibraryAsset; onUpdated: (task: VoiceTask) => void }) {
+export default function VoiceTaskResult({ task, source, onUpdated, onAssetCreated }: { task: VoiceTask; source?: LibraryAsset; onAssetCreated: (asset: LibraryAsset) => void; onUpdated: (task: VoiceTask) => void }) {
   const [track, setTrack] = useState<VoiceTrack>(task.outputs?.remix ? "remix" : "mix");
+  const [saving, setSaving] = useState(false), [saved, setSaved] = useState<Record<string, boolean>>({});
   const original = useRef<HTMLAudioElement>(null), result = useRef<HTMLAudioElement>(null);
   const [vocal, setVocal] = useState(task.mixParameters?.vocal_gain_db ?? 0);
   const [backing, setBacking] = useState(task.mixParameters?.accompaniment_gain_db ?? 0);
@@ -30,6 +31,13 @@ export default function VoiceTaskResult({ task, source, onUpdated }: { task: Voi
     catch (failure) { setError(failure instanceof Error ? failure.message : "混音失败，请重试。"); }
     finally { setBusy(false); }
   }
+  async function save() {
+    setSaving(true); setError("");
+    const key = `${selected}:${version}`;
+    try { const asset = await saveVoiceAsset(task.id, selected); onAssetCreated(asset); setSaved(value => ({ ...value, [key]: true })); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : "保存资产失败，请重试。"); }
+    finally { setSaving(false); }
+  }
   return <div className="voice-task-result">
     {source && <div className="voice-compare-player"><strong>原曲</strong><audio ref={original} controls preload="none" src={source.contentUrl} aria-label="原曲对照试听" onPlay={() => result.current?.pause()}/><button type="button" onClick={() => switchTo(original.current, result.current)}>同位置切到原曲</button></div>}
     <div className="voice-compare-player"><label className="voice-track-select">改后音频<select aria-label="试听与导出音轨" value={selected} onChange={event => { result.current?.pause(); setTrack(event.target.value as VoiceTrack); }}>{available.map(item => <option key={item} value={item}>{LABELS[item]}</option>)}</select></label>
@@ -45,6 +53,7 @@ export default function VoiceTaskResult({ task, source, onUpdated }: { task: Voi
     </details>}
     {error && <p role="alert" className="voice-error">{error}</p>}
     <a href={voiceDownloadUrl(task.id, selected)} download={`voice-${task.id.slice(0, 8)}-${selected}.wav`}>导出{LABELS[selected]} WAV</a>
-    <small>试听与导出使用同一份音轨文件。</small>
+    <button type="button" disabled={saving || busy} onClick={() => void save()}>{saving ? "正在存入资产…" : saved[`${selected}:${version}`] ? "已存到资产" : "存到资产"}</button>
+    <small>试听、导出与存到资产使用当前选中的同一份音轨；保存后可在资产库复用。</small>
   </div>;
 }

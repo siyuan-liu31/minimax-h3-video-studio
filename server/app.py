@@ -1616,6 +1616,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._read_json()
                 self._json(HTTPStatus.ACCEPTED, self.runtime.media_tasks.cancel(segments[2]))
                 return
+            if len(segments) == 5 and segments[:3] == ["api", "voice", "tasks"] and segments[4] == "assets":
+                data = self._read_json()
+                with self.runtime.result_import_lock, self.runtime.mutation_lock:
+                    receipt = self.runtime.voice.save_asset(segments[3], data, self.runtime.media.quota_bytes())
+                self._json(HTTPStatus.OK if receipt["reused"] else HTTPStatus.CREATED, receipt)
+                return
             if len(segments) == 5 and segments[:3] == ["api", "voice", "tasks"] and segments[4] == "remix":
                 self._json(HTTPStatus.OK, self.runtime.voice.remix(segments[3], self._read_json()))
                 return

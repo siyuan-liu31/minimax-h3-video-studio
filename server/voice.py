@@ -285,7 +285,9 @@ class VoiceTaskManager:
         source, reference = self.assets.get(source_id), self.assets.get(reference_id)
         if engine == "yingsinger":
             if reference_id != source_id:
-                raise ApiError(400, "invalid_reference", "分句改词当前使用原唱参考，不支持独立参考音色")
+                reference_duration = reference.get("media", {}).get("duration")
+                if type(reference_duration) not in (int, float) or not 3 <= reference_duration <= 20:
+                    raise ApiError(400, "invalid_reference", "参考音色请使用 3–20 秒清晰中文人声或清唱")
             duration = source.get("media", {}).get("duration")
             if type(duration) not in (int, float) or not 1 <= duration <= 180:
                 raise ApiError(400, "invalid_duration", "分句改词支持 1–180 秒音频，请先裁剪歌曲")
@@ -470,6 +472,43 @@ class VoiceTaskManager:
         if not path.is_file():
             raise ApiError(404, "voice_output_missing", "voice output no longer exists")
         return path
+
+    def save_asset(self, task_id: str, data: dict[str, Any], extra_storage_bytes: int = 0) -> dict[str, Any]:
+        if set(data) - {"track"}:
+            raise ApiError(400, "invalid_parameter", "only track may be supplied")
+        track = data.get("track", "mix")
+        if not isinstance(track, str):
+            raise ApiError(400, "voice_track_invalid", "track must be a string")
+        with self._lock:
+            path = self.output_path(task_id, track)
+            task = self.store.get(task_id)
+            digest = self.assets.hash_file(path)
+            key = f"{track}:{digest}"
+            saved = task.get("saved_assets", {}).get(key)
+            if saved:
+                try:
+                    asset = self.assets.get(saved)
+                    return {"asset": self.assets.public_metadata(asset), "reused": True}
+                except ApiError as error:
+                    if error.status != 404:
+                        raise
+            if self.assets.used_bytes() + extra_storage_bytes + path.stat().st_size > self.config.max_asset_storage_bytes:
+                raise ApiError(507, "asset_quota", "asset storage quota would be exceeded")
+            temporary = path.with_name(f"asset-import-{uuid.uuid4().hex}.wav")
+            asset = None
+            try:
+                shutil.copy2(path, temporary)
+                asset = self.assets.import_file(temporary, original_filename=f"voice-{task_id[:8]}-{track}.wav",
+                                               requested_kind="audio", claimed_content_type="audio/wav")
+                task.setdefault("saved_assets", {})[key] = asset["id"]
+                self.store.put(task_id, task)
+            except Exception:
+                if asset is not None:
+                    self.assets.delete(asset["id"])
+                raise
+            finally:
+                temporary.unlink(missing_ok=True)
+            return {"asset": self.assets.public_metadata(asset), "reused": False}
 
     def remix(self, task_id: str, data: dict[str, Any]) -> dict[str, Any]:
         parameters = mix_parameters(data)

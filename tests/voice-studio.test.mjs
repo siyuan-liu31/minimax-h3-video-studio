@@ -244,3 +244,22 @@ test("phrase rewrite sends corrected lines and routes recognition to the selecte
     assert.equal(requests[1].operation, "transcribe");
   } finally { globalThis.fetch = oldFetch; }
 });
+
+
+test("save current voice track returns a library asset and propagates failures", async () => {
+  const { saveVoiceAsset, submitRewriteTask } = await import("../app/voice-studio-api.ts");
+  const oldFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push([url, JSON.parse(init.body)]);
+    return reply({ asset: { id: sourceId, kind: "audio", filename: "result.wav", content_url: `/api/assets/${sourceId}/content` } });
+  };
+  try {
+    assert.equal((await saveVoiceAsset(taskId, "dry_vocal")).id, sourceId);
+    assert.deepEqual(seen[0], [`/api/voice/tasks/${taskId}/assets`, { track: "dry_vocal" }]);
+    globalThis.fetch = async (_url, init) => { const body = JSON.parse(init.body); assert.equal(body.reference_asset_id, referenceId); return reply({ ...task, engine: "yingsinger" }); };
+    await submitRewriteTask(sourceId, referenceId, "新词", "原词", { diffusion_steps:64,inference_cfg_rate:3,seed:666 }, true, "yingsinger");
+    globalThis.fetch = async () => reply({ error: { message: "空间不足" } }, 507);
+    await assert.rejects(saveVoiceAsset(taskId, "mix"), /空间不足/);
+  } finally { globalThis.fetch = oldFetch; }
+});

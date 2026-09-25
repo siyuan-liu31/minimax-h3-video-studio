@@ -325,6 +325,34 @@ class ApiIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertEqual(json.loads(body)["error"]["code"], "asset_in_use")
 
+    def test_voice_asset_save_preserves_audio_and_survives_task_deletion(self):
+        import wave
+        manager = self.server.runtime.voice
+        task_id = "e" * 32
+        directory = manager.output_root / task_id
+        directory.mkdir(parents=True)
+        output = directory / "converted.wav"
+        with wave.open(str(output), "wb") as wav:
+            wav.setparams((1, 2, 16000, 0, "NONE", ""))
+            wav.writeframes(bytes(32000))
+        manager.store.put(task_id, {"id":task_id,"status":"completed","output":{"filename":"converted.wav"}})
+        url = f"/api/voice/tasks/{task_id}/assets"
+        headers = {"X-API-Key":"test-key","Content-Type":"application/json"}
+        self.assertEqual(self.request("POST", url, '{}')[0],401)
+        status, _, raw = self.request("POST",url,'{"track":"mix"}',headers)
+        self.assertEqual(status,201,raw)
+        asset = json.loads(raw)['asset']
+        self.assertEqual(asset['kind'],'audio')
+        self.assertEqual(asset['visibility'],'library')
+        self.assertTrue(output.is_file())
+        status, _, raw = self.request("POST",url,'{"track":"mix"}',headers)
+        self.assertEqual(status,200,raw)
+        self.assertEqual(json.loads(raw)['asset']['id'],asset['id'])
+        status, _, _ = self.request("POST",url,'{"track":"dry_vocal"}',headers)
+        self.assertEqual(status,404)
+        manager.delete(task_id)
+        self.assertTrue(self.server.runtime.assets.content_path(self.server.runtime.assets.get(asset['id'])).is_file())
+
     def test_voice_and_gpu_resource_routes_are_authenticated_and_stable(self) -> None:
         task_id = "e" * 32
         output = self.config.data_root / "voice-test.wav"

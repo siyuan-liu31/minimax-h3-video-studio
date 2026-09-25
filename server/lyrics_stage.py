@@ -19,12 +19,16 @@ def separate(job):
     # Decode to a stable filename so separator output paths cannot depend on uploads.
     import subprocess
     subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-i',job['source'],'-c:a','pcm_f32le',str(inputs/'source.wav')],check=True,timeout=300)
+    if job.get('reference') != job['source'] and job.get('operation') != 'transcribe':
+        subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-i',job['reference'],'-c:a','pcm_f32le',str(inputs/'reference.wav')],check=True,timeout=300)
     args=parse_args_inference({'model_type':'bs_roformer','config_path':r['separator_config'],'start_check_point':r['separator_checkpoint'],'input_folder':str(inputs),'store_dir':str(w/'stems'),'extract_instrumental':True,'extract_other':False,'device_ids':[0],'disable_detailed_pbar':True,'force_cpu':False,'flac_file':False,'use_tta':False})
     m,c=get_model_from_config(args.model_type,args.config_path)
     load_start_checkpoint(args,m,torch.load(args.start_check_point,weights_only=False,map_location='cpu'),type_='inference')
     run_folder(m.eval().to('cuda:0'),args,c,torch.device('cuda:0'),verbose=False)
     for name in ('vocals.wav','instrumental.wav'):
         shutil.copy2(w/'stems/source'/name,w/name)
+    if (w/'stems/reference/vocals.wav').is_file():
+        shutil.copy2(w/'stems/reference/vocals.wav',w/'reference-vocals.wav')
 
 
 def align(job):
@@ -66,6 +70,22 @@ def transcribe(job):
     Path(job['output']).write_text(json.dumps({'lyrics':text},ensure_ascii=False))
 
 
+def prepare_reference(job):
+    from funasr import AutoModel
+    import soundfile as sf
+    import numpy as np
+    w=Path(job['work'])
+    voice,sr=sf.read(w/'reference-vocals.wav',dtype='float32',always_2d=True)
+    if not np.isfinite(voice).all() or float(np.sqrt(np.mean(voice.astype('float64')**2))) < 1e-5:
+        raise ValueError('参考音频未检测到有效人声，请换一段清晰中文人声')
+    model=AutoModel(model=job['runtime']['asr_models'],device='cpu',disable_update=True)
+    rows=model.generate(input=str(w/'reference-vocals.wav'))
+    text=''.join(row.get('text','').replace(' ','') for row in rows).strip()
+    if not text:
+        raise ValueError('无法识别参考音频文字，请换一段清晰中文人声或清唱')
+    (w/'reference.json').write_text(json.dumps({'text':text},ensure_ascii=False))
+
+
 def sing(job):
     import numpy as np
     import soundfile as sf
@@ -82,12 +102,16 @@ def sing(job):
     if sr!=back_sr or voice.shape!=backing.shape:raise ValueError('分离轨时间轴不一致')
     m=YingMusicSinger.from_pretrained(r['models'],local_files_only=True).eval().to('cuda:0')
     a,b=bounds[0];ref=w/'reference.wav';sf.write(ref,voice[round(a*sr):round(b*sr)],sr,subtype='FLOAT')
+    reference_text=data['original_lines'][0]
+    if job.get('reference') != job['source']:
+        ref=w/'reference-vocals.wav'
+        reference_text=json.loads((w/'reference.json').read_text())['text']
     duration=bounds[0][1] if job.get('preview') else len(voice)/sr
     count=round(duration*sr); full=np.zeros_like(voice[:count]);params=job['parameters']
     for i,(a,b) in enumerate(bounds[:1] if job.get('preview') else bounds):
         chunk=w/'phrase.wav';sf.write(chunk,voice[round(a*sr):round(b*sr)],sr,subtype='FLOAT')
         with torch.inference_mode():
-            y,rate=m(ref_audio_path=str(ref),melody_audio_path=str(chunk),ref_text=data['original_lines'][0],target_text=data['target_lines'][i],nfe_step=params['diffusion_steps'],cfg_strength=params['inference_cfg_rate'],seed=params['seed'])
+            y,rate=m(ref_audio_path=str(ref),melody_audio_path=str(chunk),ref_text=reference_text,target_text=data['target_lines'][i],nfe_step=params['diffusion_steps'],cfg_strength=params['inference_cfg_rate'],seed=params['seed'])
         wave=y.cpu().numpy().T
         if rate!=sr or not np.isfinite(wave).all() or abs(len(wave)/sr-(b-a))>.15:raise ValueError('生成乐句时长或音频无效')
         n=min(len(wave),round(b*sr)-round(a*sr),len(full)-round(a*sr))
@@ -104,7 +128,8 @@ def sing(job):
     report={'model_revision':r['model_revision'],'repository_revision':r['repository_revision'],
             'aligner_revision':r['aligner_revision'],'sample_rate':sr,'samples':count,
             'separated_backing_sha256':digest(backing[:count]),'retained_backing_sha256':digest(retained),
-            'phrases':1 if job.get('preview') else len(bounds)}
+            'reference_mode':'external' if job.get('reference') != job['source'] else 'original',
+            'reference_text':reference_text,'phrases':1 if job.get('preview') else len(bounds)}
     if report['separated_backing_sha256']!=report['retained_backing_sha256']:raise ValueError('伴奏一致性校验失败')
     (out.parent/'render-report.json').write_text(json.dumps(report))
     remix_audio(out.parent/'dry-vocal.wav',out.parent/'accompaniment.wav',out,{'vocal_gain_db':0,'accompaniment_gain_db':0})
@@ -114,7 +139,7 @@ if __name__=='__main__':
     stage,path=sys.argv[1:]
     job=json.loads(Path(path).read_text())
     try:
-        {'separate':separate,'align':align,'transcribe':transcribe,'sing':sing}[stage](job)
+        {'separate':separate,'align':align,'transcribe':transcribe,'sing':sing,'reference':prepare_reference}[stage](job)
     except Exception as error:
         (Path(job['work'])/'stage-error.json').write_text(json.dumps({'message':str(error)},ensure_ascii=False))
         raise

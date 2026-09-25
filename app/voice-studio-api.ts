@@ -247,3 +247,11 @@ export async function remixVoiceTask(id: string, vocalDb: number, backingDb: num
   if (!task) throw new Error("服务端未返回有效的混音结果");
   return task;
 }
+
+export async function saveVoiceAsset(taskId: string, track: VoiceTrack): Promise<LibraryAsset> {
+  if (!ID.test(taskId) || !TRACKS.has(track)) throw new Error("无效的任务或音轨");
+  const body = await request(`/api/voice/tasks/${taskId}/assets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ track }) }) as Record<string, unknown>;
+  const asset = remoteAssetToLibraryItem(body.asset);
+  if (!asset || asset.kind !== "audio") throw new Error("保存音频资产的回执无效");
+  return asset;
+}

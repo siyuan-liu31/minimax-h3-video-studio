@@ -635,3 +635,8 @@ GPU 租约终态、Comfy prompt 生命期、资产删除引用、API/CLI operati
 
 - `voice_capability` 必须检查 YingMusic 的 separator_config、separator_checkpoint、svc_config、svc_checkpoint 四个非空文件；空值不得从必需清单中过滤后误报就绪。Worker 在路径 resolve/模型加载前重复校验，避免空路径变为仓库目录。
 - 部署必须保留四个 `H3_STUDIO_YINGMUSIC_*_CONFIG/CHECKPOINT` 路径；仅恢复 ROOT/PYTHON 与分离配置不能启动完整换声。
+
+### 2026-09-26：分句改词参考音色与音轨入库
+
+- yingsinger 接受独立 3–20 秒中文参考音频，分离阶段同时提取参考主唱，CPU reference 阶段转录，sing 阶段使用参考主唱及其文字；原唱路径仍用原曲首句，参考阶段沿用同一进程组和 GPU 租约。
+- POST `/api/voice/tasks/:id/assets` 将当前音轨保存为 library 资产，按 track+SHA256 幂等；与 remix/delete 串行，元数据写失败撤销新资产。前端更新资产库，所有已完成换声引擎均可使用。

@@ -53,8 +53,27 @@ class TaskTests(unittest.TestCase):
             self.assertEqual(self.manager.submit(body)['id'],task['id'])
             self.assertEqual(self.worker.requests[0]['original_lyrics'],'原歌词')
             self.assertEqual(self.manager.get(task['id'])['engine'],'yingsinger')
-    def test_rejects_other_timbre_and_unknown_duration(self):
+    def test_rejects_invalid_reference_duration_and_accepts_external_voice(self):
         body={'engine':'yingsinger','source_asset_id':'a'*32,'lyrics':'新歌词','original_lyrics':'原歌词'}
         with self.assertRaises(ApiError):self.manager.submit(body)
         self.assets.values['a'*32]['media']={'duration':19}
         with self.assertRaises(ApiError):self.manager.submit({**body,'reference_asset_id':'b'*32})
+
+        self.assets.values['b'*32]['media']={'duration':8}
+        with patch('server.voice.voice_capability',return_value={'available':True}),patch('server.voice.voice_model_key',return_value='yingsinger:test'):
+            task=self.wait_terminal(self.manager.submit({**body,'reference_asset_id':'b'*32})['id'])
+            self.assertEqual(task['status'],'completed')
+            self.assertEqual(task['reference_asset_id'],'b'*32)
+            self.assertEqual(self.worker.requests[0]['reference'],str(self.assets.values['b'*32]['path']))
+
+    def test_external_reference_stage_is_not_used_for_original_voice_or_transcription(self):
+        import json,tempfile
+        from pathlib import Path
+        from server.yingsinger_worker import YingSingerEngine
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest=Path(tmp)/'runtime.json';manifest.write_text('{}')
+            engine=YingSingerEngine(manifest,0)
+            for reference,operation,expected in [('source','convert',['separate','align','sing']),('other','convert',['separate','align','reference','sing']),('other','transcribe',['separate','transcribe'])]:
+                with patch.object(engine,'_stage') as stage:
+                    engine.run({'source':'source','reference':reference,'operation':operation,'output':str(Path(tmp)/'out.wav')})
+                    self.assertEqual([call.args[0] for call in stage.call_args_list],expected)

@@ -30,12 +30,14 @@ class YingSingerEngine:
                     self._stage('transcribe', path)
                 else:
                     self._stage('align', path)
+                    if request.get('reference') != request['source']:
+                        self._stage('reference', path)
                     self._stage('sing', path)
         return output
 
     def _stage(self, stage, path):
         r = self.runtime
-        align = stage in {'align', 'transcribe'}
+        align = stage in {'align', 'transcribe', 'reference'}
         env = dict(os.environ, CUDA_VISIBLE_DEVICES=str(self.device), HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1')
         env['PYTHONPATH'] = r['align_deps'] if stage == 'align' else (r['deps'] if not align else '')
         try:

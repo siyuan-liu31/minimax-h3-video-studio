@@ -375,6 +375,10 @@ def _engine(args: argparse.Namespace):
     if args.engine == "soulx":
         from soulx_worker import SoulXEngine
         return SoulXEngine(repo, Path(args.soulx_models).resolve(), args.device)
+    for name in ("separator_config", "separator_checkpoint", "svc_config", "svc_checkpoint"):
+        value = getattr(args, name)
+        if not value or not Path(value).is_file():
+            raise ValueError(f"YingMusic {name} must point to an existing file")
     return YingMusicEngine(
         repo, cache, args.device,
         separator_config=Path(args.separator_config).resolve(),

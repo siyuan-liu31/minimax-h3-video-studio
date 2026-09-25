@@ -630,3 +630,8 @@ GPU 租约终态、Comfy prompt 生命期、资产删除引用、API/CLI operati
 - `yingsinger_worker.py` 协调 `lyrics_stage.py` 子进程，继承既有进程组和独占 GPU 租约。分离、CPU 对齐、生成按阶段加载释放，离线加载固定权重；配置 `H3_STUDIO_LYRICS_RUNTIME` 指向机器私有路径清单。详见 `docs/lyrics-rewrite.md`。
 - POST voice tasks、CLI `voice rewrite --engine yingsinger`、Agent operation schema、前端模式与历史同步支持；具备首句 preview、transcribe、三轨和 remix。校正草稿保留，不迁移旧任务。
 - 完成音频仅证明生成成功。新链路以实际分句样本、自动歌词复核、时间轴/伴奏摘要验收为依据；自动复核不能保证听感或所有新词准确，用户须先试听。
+
+### 2026-09-26：SVC 启动配置校验
+
+- `voice_capability` 必须检查 YingMusic 的 separator_config、separator_checkpoint、svc_config、svc_checkpoint 四个非空文件；空值不得从必需清单中过滤后误报就绪。Worker 在路径 resolve/模型加载前重复校验，避免空路径变为仓库目录。
+- 部署必须保留四个 `H3_STUDIO_YINGMUSIC_*_CONFIG/CHECKPOINT` 路径；仅恢复 ROOT/PYTHON 与分离配置不能启动完整换声。

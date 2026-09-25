@@ -582,13 +582,18 @@ def voice_capability(config: Config, engine: str) -> dict[str, Any]:
         mode = "fm_only"
     else:
         root, python = config.yingmusic_root, config.yingmusic_python
-        required = [Path(value) for value in (
-            config.yingmusic_separator_config, config.yingmusic_separator_checkpoint,
-            config.yingmusic_svc_config, config.yingmusic_svc_checkpoint,
-        ) if value]
+        runtime_files = {
+            "separator_config": config.yingmusic_separator_config,
+            "separator_checkpoint": config.yingmusic_separator_checkpoint,
+            "svc_config": config.yingmusic_svc_config,
+            "svc_checkpoint": config.yingmusic_svc_checkpoint,
+        }
+        required = [Path(value) for value in runtime_files.values() if value]
         required.extend([Path(root) / "my_inference.py", Path(root) / "accom_separation" / "inference.py"] if root else [])
         mode = "separate_convert_remix"
     missing = []
+    if engine == "yingmusic":
+        missing.extend(name for name, value in runtime_files.items() if not value)
     if not root or not Path(root).is_dir():
         missing.append("repository")
     if not python or not Path(python).is_file():

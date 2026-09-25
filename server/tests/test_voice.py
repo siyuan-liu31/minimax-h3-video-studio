@@ -274,6 +274,42 @@ class VoiceTaskTests(unittest.TestCase):
         self.assertFalse(unavailable["available"])
         self.assertIn("repository", unavailable["missing"])
 
+    def test_yingmusic_requires_every_runtime_file(self) -> None:
+        repo = self.config.data_root / "yingmusic"
+        (repo / "accom_separation").mkdir(parents=True)
+        for name in ("my_inference.py", "accom_separation/inference.py", "model.bin"):
+            (repo / name).write_text("test")
+        fields = ("separator_config", "separator_checkpoint", "svc_config", "svc_checkpoint")
+        config = replace(self.config, yingmusic_root=str(repo),
+                         yingmusic_python=self.config.vevo2_python,
+                         **{f"yingmusic_{name}": str(repo / "model.bin") for name in fields})
+        with patch("server.voice.shutil.which", return_value="/usr/bin/sox"):
+            self.assertTrue(voice_capability(config, "yingmusic")["available"])
+            for name in fields:
+                for value in ("", str(repo), str(repo / "missing")):
+                    with self.subTest(field=name, value=value):
+                        result = voice_capability(replace(config, **{f"yingmusic_{name}": value}), "yingmusic")
+                        self.assertFalse(result["available"])
+                        if not value:
+                            self.assertIn(name, result["missing"])
+
+    def test_yingmusic_worker_rejects_empty_or_directory_file_before_loading(self) -> None:
+        from argparse import Namespace
+        from server.voice_worker import _engine
+        root = self.config.data_root
+        file = root / "model.bin"
+        file.write_text("test")
+        fields = ("separator_config", "separator_checkpoint", "svc_config", "svc_checkpoint")
+        for name in fields:
+            for value in ("", str(root), str(root / "missing")):
+                args = Namespace(engine="yingmusic", repo=str(root), cache_root=str(root / "cache"),
+                                 device=0, **{field: str(file) for field in fields})
+                setattr(args, name, value)
+                with self.subTest(field=name, value=value), patch("server.voice_worker.YingMusicEngine") as engine:
+                    with self.assertRaisesRegex(ValueError, name):
+                        _engine(args)
+                    engine.assert_not_called()
+
     def test_worker_status_does_not_wait_for_model_load_or_conversion(self) -> None:
         worker = ProcessVoiceWorker(self.config)
         locked = threading.Event()

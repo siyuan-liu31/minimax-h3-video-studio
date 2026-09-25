@@ -23,7 +23,7 @@ from .security import validate_id
 from .storage import AssetStore, JsonStore
 
 
-ENGINES = {"vevo2", "yingmusic"}
+ENGINES = {"vevo2", "yingmusic", "soulx"}
 YINGMUSIC_DEFAULT_STEPS = 100
 YINGMUSIC_DEFAULT_CFG = 0.7
 YINGMUSIC_MAX_SEED = 2**32 - 1
@@ -124,6 +124,8 @@ class ProcessVoiceWorker:
                 "--svc-config", self.config.yingmusic_svc_config,
                 "--svc-checkpoint", self.config.yingmusic_svc_checkpoint,
             ])
+        if engine == "soulx":
+            command.extend(["--soulx-models", self.config.soulx_models])
         process = subprocess.Popen(
             command, cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=self._stderr, text=True, bufsize=1, start_new_session=True,
@@ -234,17 +236,24 @@ class VoiceTaskManager:
 
     def submit(self, data: dict[str, Any]) -> dict[str, Any]:
         tuning = {"diffusion_steps", "inference_cfg_rate", "seed"}
-        allowed = {"engine", "source_asset_id", "reference_asset_id", "request_id", "output_options"} | tuning
+        allowed = {"engine", "source_asset_id", "reference_asset_id", "request_id", "output_options", "lyrics", "original_lyrics"} | tuning
         if set(data) - allowed:
             raise ApiError(400, "invalid_parameter", "voice conversion contains unsupported fields")
         engine = str(data.get("engine", ""))
         if engine not in ENGINES:
-            raise ApiError(400, "invalid_engine", "engine must be vevo2 or yingmusic")
-        if engine != "yingmusic" and set(data) & tuning:
-            raise ApiError(400, "invalid_parameter", "tuning is supported only for yingmusic")
+            raise ApiError(400, "invalid_engine", "engine must be vevo2, yingmusic or soulx")
+        if engine not in {"yingmusic", "soulx"} and set(data) & tuning:
+            raise ApiError(400, "invalid_parameter", "tuning is supported only for yingmusic or soulx")
         if engine != "yingmusic" and "output_options" in data:
             raise ApiError(400, "invalid_parameter", "output_options are supported only for yingmusic")
-        requested, parameters = yingmusic_parameters(data) if engine == "yingmusic" else ({}, {})
+        if engine != "soulx" and {"lyrics", "original_lyrics"} & set(data):
+            raise ApiError(400, "invalid_parameter", "lyrics require the soulx engine")
+        lyrics = {}
+        if engine == "soulx":
+            from .soulx import rewrite_parameters
+            lyrics, requested, parameters = rewrite_parameters(data)
+        else:
+            requested, parameters = yingmusic_parameters(data) if engine == "yingmusic" else ({}, {})
         output_options = yingmusic_output_options(data["output_options"]) if "output_options" in data else dict(YINGMUSIC_OUTPUT_DEFAULTS)
         source_id = validate_id(str(data.get("source_asset_id", "")), "source asset id")
         reference_id = validate_id(str(data.get("reference_asset_id", "")), "reference asset id")
@@ -263,6 +272,9 @@ class VoiceTaskManager:
             digest_value["parameters"] = requested
         if "output_options" in data:
             digest_value["output_options"] = output_options
+        if engine == "soulx":
+            digest_value.update(lyrics)
+            digest_value["parameters"] = requested
         digest = hashlib.sha256(json.dumps(digest_value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         with self._lock:
             duplicate = next((task for task in self.store.list() if task.get("request_id") == request_id), None)
@@ -285,6 +297,10 @@ class VoiceTaskManager:
             if engine == "yingmusic":
                 task["parameters"] = parameters
                 task["output_options"] = output_options
+            if engine == "soulx":
+                task.update(lyrics)
+                task["parameters"] = parameters
+                task["output_options"] = {"include_stems": True, "echo": False, "reverb": False}
             self.store.put(task_id, task)
 
             def run(cancel: threading.Event, update) -> dict[str, Any]:
@@ -313,13 +329,15 @@ class VoiceTaskManager:
             if task["engine"] == "yingmusic":
                 worker_request["parameters"] = task["parameters"]
                 worker_request["output_options"] = task.get("output_options", YINGMUSIC_OUTPUT_DEFAULTS)
+            if task["engine"] == "soulx":
+                worker_request.update({key: task[key] for key in ("lyrics", "original_lyrics", "parameters", "output_options")})
             result = self.worker.run(str(task["engine"]), worker_request, cancel)
             if cancel.is_set():
                 raise ApiError(409, "voice_canceled", "voice conversion was canceled")
             if not output.is_file() or output.stat().st_size <= 0:
                 raise ApiError(502, "voice_output_missing", "voice worker produced no output")
             tracks = {"mix": output}
-            if task["engine"] == "yingmusic" and task.get("output_options", {}).get("include_stems"):
+            if task["engine"] in {"yingmusic", "soulx"} and task.get("output_options", {}).get("include_stems"):
                 tracks.update({key: output_dir / name for key, name in YINGMUSIC_TRACK_FILES.items() if key != "mix"})
             for track_path in tracks.values():
                 if not track_path.is_file() or track_path.stat().st_size <= 0:
@@ -415,7 +433,7 @@ class VoiceTaskManager:
     def public(self, task: dict[str, Any]) -> dict[str, Any]:
         value = {key: task[key] for key in (
             "id", "task_id", "engine", "source_asset_id", "reference_asset_id",
-            "status", "stage", "progress", "created_at", "updated_at", "output", "outputs", "output_options", "error", "parameters",
+            "status", "stage", "progress", "created_at", "updated_at", "output", "outputs", "output_options", "error", "parameters", "lyrics", "original_lyrics",
         ) if key in task}
         resource_id = task.get("resource_task_id")
         if isinstance(resource_id, str) and task.get("status") == "queued":
@@ -434,7 +452,7 @@ class VoiceTaskManager:
 
     def capabilities(self) -> dict[str, Any]:
         engines = []
-        for engine in sorted(ENGINES):
+        for engine in ("vevo2", "yingmusic", "soulx"):
             capability = voice_capability(self.config, engine)
             if engine == "yingmusic":
                 capability["tuning"] = {
@@ -443,6 +461,13 @@ class VoiceTaskManager:
                     "seed": {"default": -1, "minimum": -1, "maximum": YINGMUSIC_MAX_SEED},
                 }
                 capability["output_options"] = dict(YINGMUSIC_OUTPUT_DEFAULTS)
+            if engine == "soulx":
+                capability["lyrics"] = {"max_length": 10000, "languages": ["Mandarin"], "preserve_melody": True}
+                capability["tuning"] = {
+                    "diffusion_steps": {"default": 32, "minimum": 16, "maximum": 100},
+                    "inference_cfg_rate": {"default": 3, "minimum": 0, "maximum": 10},
+                    "seed": {"default": -1, "minimum": -1, "maximum": YINGMUSIC_MAX_SEED},
+                }
             engines.append({key: value for key, value in capability.items() if key not in {"root", "python"}})
         return {"engines": engines, "worker": self.worker.status()}
 
@@ -451,6 +476,9 @@ class VoiceTaskManager:
 
 
 def voice_model_key(config: Config, engine: str) -> str:
+    if engine == "soulx":
+        identity = f"{config.soulx_revision}:{config.soulx_models}"
+        return "soulx:" + hashlib.sha256(identity.encode()).hexdigest()
     if engine == "vevo2":
         return f"vevo2-fm:{config.vevo2_revision}:{config.vevo2_model_revision}"
     identities = [config.yingmusic_revision, config.yingmusic_model_revision]
@@ -468,6 +496,9 @@ def voice_model_key(config: Config, engine: str) -> str:
 
 
 def voice_capability(config: Config, engine: str) -> dict[str, Any]:
+    if engine == "soulx":
+        from .soulx import capability
+        return capability(config)
     if engine == "vevo2":
         root, python = config.vevo2_root, config.vevo2_python
         required = [Path(root) / "models" / "svc" / "vevo2" / "infer_vevo2_fm.py"] if root else []

@@ -449,6 +449,11 @@ inputs as audio assets and return a durable task ID. Conversion waits by
 default; use `--detach` to submit without keeping the CLI connected.
 
 ```bash
+# Chinese lyric rewrite with SoulX; reference defaults to the source voice.
+h3ctl voice rewrite ./song.wav --lyrics-file ./new-lyrics.txt \
+  --original-lyrics-file ./original-lyrics.txt --steps 32 --cfg 3 --seed 42 \
+  --to ./rewritten.wav
+
 # Speech or singing: Amphion Vevo2 FM-only, style-preserved VC/SVC.
 h3ctl voice convert ./source.wav \
   --reference ./reference.wav --engine vevo2 --to ./converted.wav
@@ -469,9 +474,11 @@ h3ctl voice download TASK_ID --track accompaniment --to ./accompaniment.wav
 
 Voice inputs pass content-signature and ffprobe validation. The currently
 accepted formats are MP3, WAV, FLAC, and OGG; changing only a filename suffix
-does not bypass validation. Both engines deliver lossless WAV
+does not bypass validation. All engines deliver lossless WAV
 (`audio/wav`, `converted.wav`) to avoid an extra lossy encode before later
 mixing or editing.
+
+SoulX accepts UTF-8 lyrics (maximum 10000 characters), optional original lyrics and an optional `--reference`. Its `--steps` range is 16–100 (default 32), `--cfg` is 0–10 (default 3), and `--seed` follows the shared range below. It always retains all three tracks. The Agent `voice.rewrite` operation receives `lyrics` and `original_lyrics` directly. See [SoulX setup and limitations](soulx-rewrite.md).
 
 For YingMusic, `--steps` accepts 10–200 (default 100), `--cfg` accepts 0–2
 (default 0.7), and `--seed` accepts -1 or 0–4294967295 (default -1). `-1`
@@ -492,7 +499,7 @@ the CLI download. Agent `voice.convert` accepts `output_options` with boolean
 Existing tasks still expose their original final mix only.
 
 `voice cancel`, `voice delete`, `voice capabilities`, and the Agent operations
-`voice.convert|get|wait|cancel|delete|download` are also available. A local Ctrl-C
+`voice.rewrite|convert|get|wait|cancel|delete|download` are also available. A local Ctrl-C
 only stops waiting; use `voice cancel` for remote cancellation. Check
 `h3ctl voice capabilities` before submitting: an unavailable engine reports
 the missing runtime/checkpoint without falling back to another model.

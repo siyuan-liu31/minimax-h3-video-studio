@@ -37,7 +37,7 @@ Browser :3013
 | 长视频模型与 UI | `app/video-project.ts`, `app/video-timeline.tsx`, `app/video-director-*.tsx` | `tests/video-timeline*.test.mjs`, `tests/video-director-model.test.mjs` |
 | 复刻工坊 | `app/replication-*.ts*`, `server/replication.py` | `tests/replication-workshop.test.mjs`, `server/tests/test_replication.py` |
 | 长视频执行、续接、合并 | `server/video_projects.py` | `server/tests/test_video_projects.py` |
-| 音色转换、话筒录音与换声 Worker | `app/voice-studio.tsx`, `app/microphone-recorder.tsx`, `app/microphone-audio.ts`, `app/voice-studio-api.ts`, `server/voice.py`, `server/voice_worker.py` | `tests/microphone-audio.test.mjs`, `tests/voice-studio.test.mjs`, `server/tests/test_voice.py` |
+| 音色转换、话筒录音与换声 Worker | `app/voice-studio.tsx`, `app/microphone-recorder.tsx`, `app/microphone-audio.ts`, `app/voice-studio-api.ts`, `server/voice.py`, `server/voice_worker.py`, `server/soulx.py`, `server/soulx_worker.py` | `tests/microphone-audio.test.mjs`, `tests/voice-studio.test.mjs`, `server/tests/test_voice.py` |
 | GPU 独占租约、驻留模型和队列 | `server/gpu_resources.py`, `server/comfy_tasks.py` | `server/tests/test_gpu_resources.py`, `server/tests/test_comfy_tasks.py` |
 | 启动、网关、远端运维 | `scripts/h3studio.py`, `scripts/start.mjs`, `scripts/gateway.mjs` | `scripts/ops/tests/test_h3studio.py`, `tests/gateway.test.mjs` |
 | 本地抖音解析、下载与 Swagger API | `cli/internal/douyin/`, `cli/internal/command/douyin.go` | `cli/internal/douyin/*_test.go`, `cli/internal/command/command_test.go` |
@@ -226,9 +226,13 @@ Studio 首次访问默认英文，用户可在顶栏切换 English / 中文；�
 
 浏览器话筒也可提供音频：只在用户点「开始录音」后请求权限，最长 5 分钟；停止后先在浏览器本地解码并编码为保持设备采样率的 PCM16 单声道 WAV，供用户试听。用户可把这段录音选为原音频或参考音频；只有再点「使用这段录音」才通过现有 `POST /api/assets` 上传到所选槽位，录音不会自动提交换声任务。取消、丢弃、关闭抽屉及异常路径停止媒体轨道并释放本地预览 URL；上传失败保留本地试听以便重试。浏览器话筒要求安全上下文（HTTPS 或 localhost）及 `getUserMedia`、`MediaRecorder`、`AudioContext` 支持。这是录后转换，不是实时监听变声；无 GPU 时只能测试录音/WAV/UI/API 链路，不能验证模型音质。
 
-引擎选项是 Vevo2 FM-only（语音/清唱）和 YingMusic-SVC（歌曲人声分离、转换、重混）。提交前读取 `GET /api/voice/capabilities`，仅在所选引擎 `available`、两个资产有效且没有上传/提交动作时启用按钮；不能通过前端绕开服务端能力检查。`POST /api/voice/tasks` 带随机 `request_id`，任务历史从服务端 `GET /api/voice/tasks` 恢复；活跃任务每 2.5 秒刷新一次，显示进度、GPU 队列位置与等待原因。取消和删除调用各自的服务端 API；删除仅在终态显示，并会删除输出。完成结果从同一受控任务音轨文件的 `preview`（inline）与 `download`（attachment）端点试听/导出 WAV，前端切换音轨时两者同步。没有配置外部运行时或 GPU 的本地环境只能验证 UI/API 合同，不能据此声称推理已通过。
+引擎选项包括 SoulX（中文保留旋律改词）、Vevo2 FM-only（语音/清唱）和 YingMusic-SVC（歌曲人声分离、转换、重混）。提交前读取 `GET /api/voice/capabilities`，仅在所选引擎 `available`、两个资产有效且没有上传/提交动作时启用按钮；不能通过前端绕开服务端能力检查。`POST /api/voice/tasks` 带随机 `request_id`，任务历史从服务端 `GET /api/voice/tasks` 恢复；活跃任务每 2.5 秒刷新一次，显示进度、GPU 队列位置与等待原因。取消和删除调用各自的服务端 API；删除仅在终态显示，并会删除输出。完成结果从同一受控任务音轨文件的 `preview`（inline）与 `download`（attachment）端点试听/导出 WAV，前端切换音轨时两者同步。没有配置外部运行时或 GPU 的本地环境只能验证 UI/API 合同，不能据此声称推理已通过。
 
 YingMusic 的 `capabilities.engines[].tuning` 公布范围/默认值；只有服务端支持时前端才展示/提交 `diffusion_steps`（10–200，默认 100）、`inference_cfg_rate`（0–2，默认 0.7）、`seed`（-1 或 0–4294967295，默认 -1）。-1 在服务端按任务生成实际种子，实际值随持久回执 `parameters` 返回；相同 `request_id` 重放复用原任务/种子。Worker 在人声转换前设置 Python、NumPy、PyTorch/CUDA RNG，且每任务重置步数/引导强度，避免驻留 Worker 把前一次参数带入下一次。种子影响扩散初始噪声，但 CUDA 非确定性和环境差异不保证位级一致。100 步为上游 Gradio/脚本的质量-耗时折中，不宣称普适最优；模型 FP16、分离/重混选项维持原完整工作流，不与推理步数一并调整。
+
+SoulX 使用锁定的 ComfyUI-MIDI-Edit core（`801cb858464dd33312dcec27ed7151d130ae93ee`，SoulX 子模块 `81aeb3ae772c70093c3de74dc23c92d983801ae4`），作为独立 Python Worker 进入同一 GPU 队列，不向运行中的 ComfyUI 注入依赖。`H3_STUDIO_SOULX_ROOT` / `H3_STUDIO_SOULX_PYTHON` / `H3_STUDIO_SOULX_MODELS` 分别指向仓库、解释器与含 `Soul-AILab` 的模型根目录。安装和验收见 [SoulX 改词](soulx-rewrite.md)。
+
+`POST /api/voice/tasks` 的 `engine=soulx` 必须带非空 `lyrics`，可带 `original_lyrics` 校正原歌词识别；两者最多 10000 字符，拒绝 NUL。可选参数 `diffusion_steps=32`（16–100）、`inference_cfg_rate=3`（0–10）、`seed=-1`（随机，回执保存实际种子）。前端/CLI 未选择参考时使用原音频资产；API 仍要求两个资产 ID。歌词参与幂等摘要并保存在任务回执；SoulX 固定保留 mix/dry_vocal/accompaniment 三轨。音频预处理仅写任务临时副本；由 `soulx_alignment.py` 对齐歌词，拆分承载多个字的音符，避免上游 preserve_sp 覆盖字；新词较少时延续音节，不丢失原音高区间。恢复每个分段的原始时间偏移，保持伴奏与全曲时长；参考波形裁到其原始首段，避免提示声与音素错位。Singer 使用 FP32，score 控制、不自动移调；上游以原 F0 轮廓细分音符，优先歌词清晰度，原唱的细微滑音不保证逐帧一致。当前只承诺中文，字数差异过大需调整歌词。
 
 `ProcessVoiceWorker.status()` 读取原子发布的驻留状态快照，不获取覆盖模型加载/推理全程的 Worker 运行锁；因此换声任务进行时，能力查询和前端面板不会被长推理阻塞。
 
@@ -431,6 +435,7 @@ API 路由集中在 `server/app.py::Handler`：
 `cli/cmd/h3ctl` 是面向 Agent 与脚本的正式 API 客户端，不替代 Python API，也不复制 `workflows.py` 的编译逻辑。命令层只解析参数，`internal/operation` 承载可供未来 workflow DAG 直接调用的原子能力。
 
 - 生成使用“提交 `job_id` + 短请求轮询”；CLI 断开不取消服务端任务，`Ctrl-C` 默认只停止本地等待。
+- `voice rewrite SOURCE --lyrics-file lyrics.txt [--original-lyrics-file original.txt] [--reference AUDIO] [--steps 32 --cfg 3 --seed -1] [--detach] [--to output.wav]` 提交 SoulX 改词；Agent operation 为 `voice.rewrite`，歌词直接传 `lyrics` / `original_lyrics`。状态、等待、取消、删除与分轨下载复用 `voice` 命令。
 - `voice convert` 用两个音频 locator 提交持久换声任务，默认等待，`--detach` 只返回 task ID；YingMusic 可选 `--steps`、`--cfg`、`--seed`、`--keep-stems`、`--echo=false`、`--reverb=false`，Agent 的 `voice.convert` 对应字段为 `diffusion_steps`、`inference_cfg_rate`、`seed`、`output_options`；`voice download --track mix|dry_vocal|accompaniment` 与 Agent `voice.download.track` 可取回分轨，默认仍是最终混音。`voice.*` 和 `gpu.status` 也是 Agent 原子 operation。
 - `media prepare-reference` 与 `media.prepare_reference` 共用服务端派生；本地输入先上传，CLI 本机不需要 ffmpeg。`job resume` 与 `job.resume` 只提交任务 ID、追加步数和幂等 request ID，可继续等待/下载。
 - `video compose` / `video.compose` 是端到端长视频入口：自动补齐 Profile 版本与摘要，再组合项目创建、顺序生成、Motion Context 裁头、合并等待和原子下载。`video trim` 复用 `media trim`，`video concat` 复用 `project merge`，底层原子 operation 仍可独立调用。

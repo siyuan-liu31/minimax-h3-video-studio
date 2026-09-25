@@ -177,10 +177,16 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 		return jsonActionWithID(ctx, s, http.MethodPost, "/api/derivations/"+url.PathEscape(require("media_id"))+"/assets", body, "asset_id", "id")
 	case "media.delete":
 		return jsonAction(ctx, s, http.MethodDelete, "/api/derivations/"+url.PathEscape(require("media_id")), nil)
-	case "voice.convert":
+	case "voice.rewrite", "voice.convert":
 		tuning := map[string]any{}
 		copyOptional(tuning, input, "diffusion_steps", "inference_cfg_rate", "seed", "output_options")
-		submitted, err := s.SubmitVoice(ctx, require("engine"), require("source"), require("reference"), stringValue(input["request_id"], ""), tuning)
+		var submitted map[string]any
+		var err error
+		if name == "voice.rewrite" {
+			submitted, err = s.SubmitRewrite(ctx, input, stringValue(input["request_id"], ""))
+		} else {
+			submitted, err = s.SubmitVoice(ctx, require("engine"), require("source"), require("reference"), stringValue(input["request_id"], ""), tuning)
+		}
 		if err != nil {
 			return nil, err
 		}

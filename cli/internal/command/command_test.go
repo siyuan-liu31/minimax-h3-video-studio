@@ -958,7 +958,7 @@ func TestConnectionDecisionCoversEveryRemoteCommandAction(t *testing.T) {
 		"generate":    {"image", "video"},
 		"job":         {"list", "get", "wait", "resume", "cancel", "download", "save", "workflow", "delete"},
 		"media":       {"frame", "endpoints", "trim", "extract-audio", "remove-audio", "mux-audio", "prepare-reference", "list", "get", "download", "save", "delete"},
-		"voice":       {"convert", "status", "wait", "cancel", "delete", "download", "capabilities"},
+		"voice":       {"rewrite", "convert", "status", "wait", "cancel", "delete", "download", "capabilities"},
 		"project":     {"list", "create", "apply", "get", "delete", "run", "wait", "stop", "rerun", "merge", "download"},
 		"replication": {"plan", "create", "list", "inspect", "export", "edit-segment", "resume", "run", "wait", "stop", "rerun", "merge", "download"},
 		"video":       {"compose", "replicate", "migrate-character", "trim", "concat"},
@@ -1903,6 +1903,37 @@ func TestReplicationPlanCannotOverrideNoGenerationBoundary(t *testing.T) {
 		code, out, stderr := executeTest(t, []string{"--server", "http://127.0.0.1:1", "replication", "plan", flag}, "")
 		if code != 2 || !strings.Contains(out+stderr, "does not accept") {
 			t.Fatalf("%s code=%d out=%s err=%s", flag, code, out, stderr)
+		}
+	}
+}
+
+func TestVoiceRewriteReadsLyricsAndKeepsDefaultReference(t *testing.T) {
+	lyrics := filepath.Join(t.TempDir(), "lyrics.txt")
+	if err := os.WriteFile(lyrics, []byte("月光洒在窗前\n晚风吹过山间"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var submitted map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/api/voice/tasks" {
+			t.Fatalf("unexpected request %s", r.URL)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&submitted)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"task_id": testMediaID, "status": "queued"})
+	}))
+	defer server.Close()
+	code, out, stderr := executeTest(t, []string{"--server", server.URL, "--json", "voice", "rewrite", "asset:" + testAssetID, "--lyrics-file", lyrics, "--detach"}, "")
+	if code != 0 {
+		t.Fatalf("%d %s %s", code, out, stderr)
+	}
+	if submitted["engine"] != "soulx" || submitted["reference_asset_id"] != testAssetID || submitted["lyrics"] != "月光洒在窗前\n晚风吹过山间" || submitted["inference_cfg_rate"] != float64(3) {
+		t.Fatalf("payload: %v", submitted)
+	}
+	for _, bad := range []string{"", string([]byte{0xff})} {
+		_ = os.WriteFile(lyrics, []byte(bad), 0600)
+		code, _, _ := executeTest(t, []string{"--server", server.URL, "voice", "rewrite", "asset:" + testAssetID, "--lyrics-file", lyrics, "--detach"}, "")
+		if code == 0 {
+			t.Fatal("accepted invalid lyrics")
 		}
 	}
 }

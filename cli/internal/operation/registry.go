@@ -240,6 +240,17 @@ func buildDefinitions() map[string]Definition {
 		"request_id": idRule, "wait": boolRule, "timeout_seconds": numberRule(0),
 		"poll_seconds": numberRule(0), "download": map[string]any{"type": "string"}, "download_track": enum("mix", "dry_vocal", "accompaniment"), "force": boolRule,
 	})
+
+	add("voice.rewrite", []string{"source", "lyrics"}, map[string]any{
+		"source": stringRule, "reference": stringRule,
+		"lyrics":             map[string]any{"type": "string", "minLength": 1, "maxLength": 10000},
+		"original_lyrics":    map[string]any{"type": "string", "maxLength": 10000},
+		"diffusion_steps":    map[string]any{"type": "integer", "minimum": 16, "maximum": 100},
+		"inference_cfg_rate": map[string]any{"type": "number", "minimum": 0, "maximum": 10},
+		"seed":               map[string]any{"type": "integer", "minimum": -1, "maximum": 4294967295},
+		"request_id":         idRule, "wait": boolRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0),
+		"download": stringRule, "download_track": enum("mix", "dry_vocal", "accompaniment"), "force": boolRule,
+	})
 	add("voice.get", []string{"task_id"}, map[string]any{"task_id": idRule})
 	add("voice.wait", []string{"task_id"}, map[string]any{"task_id": idRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0)})
 	add("voice.cancel", []string{"task_id"}, map[string]any{"task_id": idRule})

@@ -82,6 +82,10 @@ class Config:
     gpu_poll_seconds: int = 2
     max_active_voice_tasks: int = 16
     voice_worker_start_seconds: int = 20 * 60
+    soulx_root: str = ""
+    soulx_python: str = ""
+    soulx_models: str = ""
+    soulx_revision: str = "801cb858464dd33312dcec27ed7151d130ae93ee"
     vevo2_root: str = ""
     vevo2_python: str = ""
     vevo2_revision: str = "26f6883110181f1dbfe95c70a7c7dbaf4de5f42a"
@@ -218,6 +222,9 @@ class Config:
             vevo2_model_revision=os.environ.get(
                 "H3_STUDIO_VEVO2_MODEL_REVISION", "2674843cbaa50aa89ee7ccaf5bb15d6ccf46c6c8",
             ).strip(),
+            soulx_root=os.environ.get("H3_STUDIO_SOULX_ROOT", "").strip(),
+            soulx_python=os.environ.get("H3_STUDIO_SOULX_PYTHON", "").strip(),
+            soulx_models=os.environ.get("H3_STUDIO_SOULX_MODELS", "").strip(),
             yingmusic_root=os.environ.get("H3_STUDIO_YINGMUSIC_ROOT", "").strip(),
             yingmusic_python=os.environ.get("H3_STUDIO_YINGMUSIC_PYTHON", "").strip(),
             yingmusic_revision=os.environ.get(

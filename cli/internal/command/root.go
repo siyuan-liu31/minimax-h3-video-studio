@@ -18,7 +18,7 @@ import (
 	"h3studio/cli/internal/output"
 )
 
-const Version = "0.6.1-dev.20260924"
+const Version = "0.6.1-dev.20260925.1"
 
 type IOStreams struct {
 	In       io.Reader
@@ -158,7 +158,7 @@ var networkCommandActions = map[string]map[string]bool{
 	"job":         {"list": true, "get": true, "wait": true, "resume": true, "cancel": true, "download": true, "save": true, "workflow": true, "delete": true},
 	"media":       {"frame": true, "endpoints": true, "trim": true, "extract-audio": true, "remove-audio": true, "mux-audio": true, "prepare-reference": true, "list": true, "get": true, "download": true, "save": true, "delete": true},
 	"video":       {"compose": true, "replicate": true, "migrate-character": true, "trim": true, "concat": true},
-	"voice":       {"convert": true, "status": true, "wait": true, "cancel": true, "delete": true, "download": true, "capabilities": true},
+	"voice":       {"rewrite": true, "convert": true, "status": true, "wait": true, "cancel": true, "delete": true, "download": true, "capabilities": true},
 	"project":     {"list": true, "create": true, "apply": true, "get": true, "delete": true, "run": true, "wait": true, "stop": true, "rerun": true, "merge": true, "download": true},
 }
 

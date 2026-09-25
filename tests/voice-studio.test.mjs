@@ -139,3 +139,31 @@ test("voice drawer is wired to upload/drop, persisted task polling, cancellation
   assert.match(drawer, /不是越高越好/);
   assert.match(drawer, /<span>种子<\/span>/);
 });
+
+test("SoulX rewrite validates new lyrics, keeps parameters and restores history", async () => {
+  const { submitRewriteTask, validateRewriteParameters } = await import("../app/voice-studio-api.ts");
+  const parameters = { diffusion_steps: 32, inference_cfg_rate: 3, seed: 42 };
+  assert.deepEqual(validateRewriteParameters(parameters), parameters);
+  assert.throws(() => validateRewriteParameters({ ...parameters, diffusion_steps: 15 }));
+  assert.throws(() => validateRewriteParameters({ ...parameters, inference_cfg_rate: NaN }));
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    calls++;
+    const body = JSON.parse(init.body);
+    assert.equal(body.engine, "soulx");
+    assert.equal(body.lyrics, "月光洒在窗前\n晚风吹过山间");
+    assert.deepEqual(body.original_lyrics, "原歌词");
+    assert.match(body.request_id, /^[a-f0-9]{32}$/);
+    return reply({ ...task, ...body, parameters });
+  };
+  try {
+    await assert.rejects(submitRewriteTask(sourceId, referenceId, " ", "", parameters));
+    assert.equal(calls, 0);
+    const result = await submitRewriteTask(sourceId, referenceId, "月光洒在窗前\n晚风吹过山间", "原歌词", parameters);
+    assert.deepEqual(result.parameters, parameters);
+    assert.equal(result.lyrics, "月光洒在窗前\n晚风吹过山间");
+    assert.equal(result.originalLyrics, "原歌词");
+    assert.equal(translateUiText("开始改词翻唱", "en"), "Generate rewritten song");
+  } finally { globalThis.fetch = originalFetch; }
+});

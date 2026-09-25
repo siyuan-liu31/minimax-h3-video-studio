@@ -1,6 +1,6 @@
 import { remoteAssetToLibraryItem, type LibraryAsset } from "./studio-library.ts";
 
-export type VoiceEngine = "vevo2" | "yingmusic";
+export type VoiceEngine = "vevo2" | "yingmusic" | "soulx";
 export type YingMusicParameters = { diffusion_steps: number; inference_cfg_rate: number; seed: number };
 export type YingMusicOutputOptions = { include_stems: boolean; echo: boolean; reverb: boolean };
 export type VoiceTrack = "mix" | "dry_vocal" | "accompaniment";
@@ -22,11 +22,13 @@ export type VoiceTask = {
   outputOptions?: YingMusicOutputOptions;
   error?: string;
   parameters?: YingMusicParameters;
+  lyrics?: string;
+  originalLyrics?: string;
 };
 
 const ID = /^[0-9a-f]{32}$/;
 const AUDIO_EXTENSION = /\.(wav|flac|ogg|mp3)$/i;
-const ENGINES = new Set<VoiceEngine>(["vevo2", "yingmusic"]);
+const ENGINES = new Set<VoiceEngine>(["vevo2", "yingmusic", "soulx"]);
 const STATUSES = new Set<VoiceTask["status"]>(["queued", "running", "cancelling", "completed", "failed", "canceled"]);
 const TRACKS = new Set<VoiceTrack>(["mix", "dry_vocal", "accompaniment"]);
 
@@ -46,10 +48,10 @@ export function validateYingMusicParameters(value: YingMusicParameters): YingMus
   return value;
 }
 
-function parseParameters(raw: unknown): YingMusicParameters | undefined {
+function parseParameters(raw: unknown, engine?: unknown): YingMusicParameters | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const value = raw as Record<string, unknown>;
-  try { return validateYingMusicParameters(value as YingMusicParameters); } catch { return undefined; }
+  try { return engine === "soulx" ? validateRewriteParameters(value as YingMusicParameters) : validateYingMusicParameters(value as YingMusicParameters); } catch { return undefined; }
 }
 
 export function isSupportedVoiceAudio(file: Pick<File, "name" | "type">): boolean {
@@ -86,7 +88,7 @@ export function parseVoiceTask(raw: unknown): VoiceTask | undefined {
   let outputOptions: YingMusicOutputOptions | undefined;
   try { outputOptions = validateYingMusicOutputOptions(rawOptions as YingMusicOutputOptions); } catch { /* old task */ }
   const error = value.error && typeof value.error === "object" ? value.error as Record<string, unknown> : undefined;
-  const parameters = parseParameters(value.parameters);
+  const parameters = parseParameters(value.parameters, value.engine);
   return {
     id,
     engine: value.engine as VoiceEngine,
@@ -103,6 +105,8 @@ export function parseVoiceTask(raw: unknown): VoiceTask | undefined {
     ...(outputOptions ? { outputOptions } : {}),
     ...(error && typeof error.message === "string" ? { error: error.message } : {}),
     ...(parameters ? { parameters } : {}),
+    ...(typeof value.lyrics === "string" ? { lyrics: value.lyrics } : {}),
+    ...(typeof value.original_lyrics === "string" ? { originalLyrics: value.original_lyrics } : {}),
   };
 }
 
@@ -173,4 +177,24 @@ export async function cancelVoiceTask(id: string): Promise<VoiceTask> {
 export async function deleteVoiceTask(id: string): Promise<void> {
   if (!ID.test(id)) throw new Error("无效的换声任务 ID");
   await request(`/api/voice/tasks/${id}`, { method: "DELETE" });
+}
+
+export const SOULX_DEFAULTS: YingMusicParameters = { diffusion_steps: 32, inference_cfg_rate: 3, seed: -1 };
+
+export function validateRewriteParameters(value: YingMusicParameters): YingMusicParameters {
+  if (!Number.isInteger(value.diffusion_steps) || value.diffusion_steps < 16 || value.diffusion_steps > 100) throw new Error("改词采样步数须为 16–100 的整数");
+  if (!Number.isFinite(value.inference_cfg_rate) || value.inference_cfg_rate < 0 || value.inference_cfg_rate > 10) throw new Error("改词引导强度须为 0–10 的数字");
+  if (!Number.isInteger(value.seed) || value.seed < -1 || value.seed > 4294967295) throw new Error("随机种子须为 -1 或 0–4294967295 的整数");
+  return value;
+}
+
+export async function submitRewriteTask(sourceAssetId: string, referenceAssetId: string, lyrics: string, originalLyrics: string, parameters: YingMusicParameters): Promise<VoiceTask> {
+  if (!ID.test(sourceAssetId) || !ID.test(referenceAssetId)) throw new Error("请选择原音频与参考音频");
+  if (!lyrics.trim() || [...lyrics].length > 10000 || [...originalLyrics].length > 10000 || lyrics.includes("\0") || originalLyrics.includes("\0")) throw new Error("请填写新歌词，歌词最多 10000 字");
+  validateRewriteParameters(parameters);
+  const body = await request("/api/voice/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ engine: "soulx", source_asset_id: sourceAssetId, reference_asset_id: referenceAssetId, lyrics, original_lyrics: originalLyrics, ...parameters, request_id: crypto.randomUUID().replaceAll("-", "") }) });
+  const task = parseVoiceTask(body);
+  if (!task) throw new Error("服务端未返回有效的换声任务");
+  return task;
 }

@@ -3,6 +3,21 @@ export type UiLanguage = "en" | "zh-CN";
 export const UI_LANGUAGE_STORAGE_KEY = "h3-studio-ui-language-v1";
 
 const ENGLISH_COPY: Readonly<Record<string, string>> = {
+  "SoulX · 保留旋律改词": "SoulX · Rewrite lyrics",
+  "改词翻唱": "Rewrite song lyrics",
+  "开始改词翻唱": "Generate rewritten song",
+  "新歌词": "New lyrics",
+  "查看新歌词": "View new lyrics",
+  "复用改词设置": "Reuse rewrite settings",
+  "原歌词（可选，用于校正识别）": "Original lyrics (optional, corrects transcription)",
+  "按原旋律演唱新歌词，保留原伴奏。当前支持中文改词。": "Sing new lyrics to the original melody and accompaniment. Mandarin lyrics supported.",
+  "参考音频可不选，默认保留原唱音色。建议先用短片段试听。": "Reference audio is optional; the original singer is used by default. Try a short clip first.",
+  "按演唱顺序填写并按句换行。字数变化较大时，可能需要调整分句后重试。": "Enter lyrics in singing order, one phrase per line. Large changes in length may need revised phrasing.",
+  "保留新唱干声和原伴奏，可分别试听与下载。默认 32 步、引导强度 3。": "Dry vocals and original accompaniment are saved separately. Defaults: 32 steps, guidance 3.",
+  "请选择原音频与参考音频": "Select source and reference audio",
+  "请填写新歌词，歌词最多 10000 字": "Enter new lyrics, up to 10000 characters",
+  "改词采样步数须为 16–100 的整数": "Rewrite steps must be an integer from 16 to 100",
+  "改词引导强度须为 0–10 的数字": "Rewrite guidance must be a number from 0 to 10",
   "抖音": "Douyin",
   "抖音素材": "Douyin sources",
   "粘贴分享链接，下载并保存到资产库。": "Paste a share link to download into your asset library.",

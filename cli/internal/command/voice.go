@@ -7,7 +7,10 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"h3studio/cli/internal/operation"
 	"h3studio/cli/internal/resource"
@@ -16,6 +19,7 @@ import (
 const VoiceHelp = `Usage: h3ctl voice COMMAND
 
   convert SOURCE --reference AUDIO --engine vevo2|yingmusic [--steps 100] [--cfg 0.7] [--seed -1] [--keep-stems] [--echo=false] [--reverb=false] [--detach] [--to PATH]
+  rewrite SOURCE --lyrics-file FILE [--original-lyrics-file FILE] [--reference AUDIO] [--steps 32] [--cfg 3] [--seed -1] [--detach] [--to PATH]
   status TASK
   wait TASK [--timeout DURATION] [--poll-interval DURATION]
   cancel TASK
@@ -39,6 +43,8 @@ func (r *Runner) runVoice(ctx context.Context, args []string) (any, error) {
 		return nil, nil
 	}
 	switch args[0] {
+	case "rewrite":
+		return r.runVoiceRewrite(ctx, args[1:])
 	case "convert":
 		set := newFlags("voice convert")
 		engine := set.String("engine", "", "")
@@ -191,4 +197,75 @@ func voiceDownloadPath(taskID, track string) string {
 		path += "?track=" + url.QueryEscape(track)
 	}
 	return path
+}
+
+// runVoiceRewrite keeps the CLI file handling separate from the reusable API operation.
+func (r *Runner) runVoiceRewrite(ctx context.Context, args []string) (any, error) {
+	set := newFlags("voice rewrite")
+	lyricsFile := set.String("lyrics-file", "", "UTF-8 lyrics file")
+	originalFile := set.String("original-lyrics-file", "", "optional original lyrics")
+	reference := set.String("reference", "", "defaults to source")
+	steps := set.Int("steps", 32, "")
+	cfg := set.Float64("cfg", 3, "")
+	seed := set.Int64("seed", -1, "")
+	detach := set.Bool("detach", false, "")
+	to := set.String("to", "", "")
+	force := set.Bool("force", false, "")
+	timeout := set.Duration("timeout", 0, "")
+	poll := set.Duration("poll-interval", 5*time.Second, "")
+	if err := parseFlags(set, args); err != nil {
+		return nil, usage("%v", err)
+	}
+	if set.NArg() != 1 || *lyricsFile == "" || *timeout < 0 || *poll <= 0 || (*detach && *to != "") {
+		return nil, usage("voice rewrite requires SOURCE --lyrics-file FILE; --detach cannot be combined with --to")
+	}
+	readLyrics := func(path string) (string, error) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		text := strings.TrimSpace(string(data))
+		if !utf8.Valid(data) || text == "" || utf8.RuneCountInString(text) > 10000 {
+			return "", usage("lyrics must be nonempty UTF-8 text, at most 10000 characters")
+		}
+		return text, nil
+	}
+	lyrics, err := readLyrics(*lyricsFile)
+	if err != nil {
+		return nil, err
+	}
+	original := ""
+	if *originalFile != "" {
+		original, err = readLyrics(*originalFile)
+		if err != nil {
+			return nil, err
+		}
+	}
+	ref := *reference
+	if ref == "" {
+		ref = set.Arg(0)
+	}
+	input := map[string]any{"source": set.Arg(0), "reference": ref, "lyrics": lyrics, "original_lyrics": original, "diffusion_steps": float64(*steps), "inference_cfg_rate": *cfg, "seed": float64(*seed)}
+	submitted, err := r.Service.SubmitRewrite(ctx, input, r.Globals.RequestID)
+	if err != nil {
+		return nil, err
+	}
+	taskID := stringAny(submitted["task_id"], "")
+	result := map[string]any{"task_id": taskID, "submitted": submitted}
+	if *detach {
+		return result, nil
+	}
+	completed, err := r.Service.WaitVoice(ctx, taskID, operation.WaitOptions{Timeout: *timeout, PollInterval: *poll, OnEvent: r.Printer.Event})
+	if err != nil {
+		return nil, err
+	}
+	result["completed"] = completed
+	if *to != "" {
+		downloaded, err := r.Service.API.Download(ctx, voiceDownloadPath(taskID, "mix"), *to, *force)
+		if err != nil {
+			return nil, err
+		}
+		result["download"] = downloaded
+	}
+	return result, nil
 }

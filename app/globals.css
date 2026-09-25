@@ -961,3 +961,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .douyin-drawer .douyin-failure p { margin:7px 0; color:#ffe0dc; }
 .douyin-failure small { display:block; margin-top:8px; color:#e2b8b5; overflow-wrap:anywhere; }
 .douyin-drawer pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+
+.voice-lyrics > label { display: grid; gap: 6px; color: #aeb7ca; font-size: 11px; }
+.voice-lyrics textarea { width: 100%; resize: vertical; min-height: 70px; padding: 8px; border: 1px solid #3b4354; border-radius: 6px; background: #0b0f17; color: #e8e7f4; font: inherit; line-height: 1.6; }
+.voice-task-lyrics p { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -1,6 +1,7 @@
 import type { SerializedVideoProject } from "./video-project";
 
 export const REPLICATION_RECIPE_VERSION = "h3.replication/v1" as const;
+export const REPLICATION_MAX_IMAGE_REFERENCES = 9;
 export const REPLICATION_PRESERVE_OPTIONS = [
   "timing", "motion", "camera", "composition", "environment", "lighting", "interactions",
 ] as const;
@@ -39,6 +40,10 @@ export type ReplicationPlan = {
   recipe: Record<string, unknown>;
   project: SerializedVideoProject;
 };
+
+export function replicationBriefAssetMentions(brief: string): string[] {
+  return [...new Set(Array.from(brief.matchAll(/@\{([0-9a-f]{32})\}/g), (match) => match[1]))];
+}
 
 async function jsonRequest(path: string, body: unknown): Promise<unknown> {
   const response = await fetch(path, {

@@ -4,6 +4,7 @@ import test from "node:test";
 
 const model = readFileSync(new URL("../app/replication-project.ts", import.meta.url), "utf8");
 const workshop = readFileSync(new URL("../app/replication-workshop.tsx", import.meta.url), "utf8");
+const mentions = readFileSync(new URL("../app/prompt-mentions.tsx", import.meta.url), "utf8");
 const studio = readFileSync(new URL("../app/studio.tsx", import.meta.url), "utf8");
 const api = readFileSync(new URL("../app/video-project-api.ts", import.meta.url), "utf8");
 
@@ -13,6 +14,18 @@ test("replication workshop uses the versioned server planner and scene analysis"
   assert.match(model, /\/api\/video\/replication\/plan/);
   assert.match(workshop, /analyzeReplicationScenes/);
   assert.match(workshop, /planReplication/);
+});
+
+test("replication brief @ mentions bind selected image references", async () => {
+  const { replicationBriefAssetMentions } = await import("../app/replication-project.ts");
+  const first = "a".repeat(32);
+  const second = "b".repeat(32);
+  assert.deepEqual(replicationBriefAssetMentions(`黄发女孩替换为@{${first}}，女仆替换为@{${second}}，再看@{${first}}`), [first, second]);
+  assert.match(workshop, /<PromptMentionComposer value=\{brief\}/);
+  assert.match(workshop, /onSelectItem=\{selectBriefReference\}/);
+  assert.match(workshop, /replicationBriefAssetMentions\(brief\)/);
+  assert.match(workshop, /referenceIds\.map\(\(assetId\) =>/);
+  assert.doesNotMatch(mentions, /item\.previewUrl \?\? ""\}:\$\{item\.connected\}/);
 });
 
 test("replication execution is durable and reuses video projects", () => {

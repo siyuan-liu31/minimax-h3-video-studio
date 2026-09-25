@@ -95,7 +95,9 @@ export default function PromptMentionComposer({ value, onChange, items, onSelect
   const [search, setSearch] = useState("");
   const [selecting, setSelecting] = useState(false);
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
-  const itemsKey = useMemo(() => items.map((item) => `${item.id}:${item.label}:${item.previewUrl ?? ""}:${item.connected}`).join("|"), [items]);
+  // Connection status only changes the picker grouping. Rebuilding the editor
+  // for that change discards its live caret, so a second @ can land at the start.
+  const itemsKey = useMemo(() => items.map((item) => `${item.id}:${item.label}:${item.kind}:${item.previewUrl ?? ""}`).join("|"), [items]);
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     return query ? items.filter((item) => `${item.label} ${item.kind}`.toLocaleLowerCase().includes(query)) : items;

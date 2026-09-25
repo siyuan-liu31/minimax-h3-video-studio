@@ -5,11 +5,13 @@
 /* eslint-disable jsx-a11y/media-has-caption */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import PromptMentionComposer, { type PromptMentionItem } from "./prompt-mentions";
 import type { LibraryAsset } from "./studio-library";
 import { VideoProjectApi, VideoProjectApiError } from "./video-project-api";
 import { serializeVideoProject, timelineProfileKey, type TimelineProfile, type VideoProject } from "./video-project";
 import {
-  REPLICATION_PRESERVE_OPTIONS, REPLICATION_RECIPE_VERSION, analyzeReplicationScenes, planReplication,
+  REPLICATION_MAX_IMAGE_REFERENCES, REPLICATION_PRESERVE_OPTIONS, REPLICATION_RECIPE_VERSION,
+  analyzeReplicationScenes, planReplication, replicationBriefAssetMentions,
   isReplicationProject, replicationIsActive, replicationEditImpact, replicationStatusLabel,
   type ReplicationAudioPolicy, type ReplicationContinuity, type ReplicationPlan, type ReplicationPreserve,
 } from "./replication-project";
@@ -79,6 +81,10 @@ export default function ReplicationWorkshop({ initialSourceId, assets, profiles,
   const complete = Boolean(project?.segments.length && completed === project.segments.length);
   const affected = project ? replicationEditImpact(project.segments, segmentId) : [];
   const locked = Boolean(busy) || active;
+  const briefMentionItems: PromptMentionItem[] = images.map((asset) => ({
+    id: asset.id, label: asset.filename, kind: "image", previewUrl: asset.thumbnailUrl || asset.contentUrl,
+    connected: referenceIds.includes(asset.id),
+  }));
 
   const accept = (value: VideoProject, selectFirst = false) => {
     setProject(value);
@@ -129,7 +135,25 @@ export default function ReplicationWorkshop({ initialSourceId, assets, profiles,
 
   const resetPlan = () => { setPlan(undefined); setError(""); setNotice(""); };
   const togglePreserve = (item: ReplicationPreserve) => { resetPlan(); setPreserve((items) => items.includes(item) ? items.filter((value) => value !== item) : [...items, item]); };
-  const toggleReference = (id: string) => { resetPlan(); setReferenceIds((items) => items.includes(id) ? items.filter((value) => value !== id) : items.length < 9 ? [...items, id] : items); };
+  const toggleReference = (id: string) => {
+    resetPlan();
+    setReferenceIds((items) => items.includes(id) ? items.filter((value) => value !== id)
+      : items.length < REPLICATION_MAX_IMAGE_REFERENCES ? [...items, id] : items);
+  };
+  const selectBriefReference = (item: PromptMentionItem) => {
+    if (brief.length + item.id.length + 4 > 4000) {
+      setError("复刻说明已接近 4000 字上限；请先删减文字再引用素材。");
+      return false;
+    }
+    if (referenceIds.includes(item.id)) return true;
+    if (referenceIds.length >= REPLICATION_MAX_IMAGE_REFERENCES) {
+      setError(`最多选择 ${REPLICATION_MAX_IMAGE_REFERENCES} 张图片参考；请先取消一张。`);
+      return false;
+    }
+    resetPlan();
+    setReferenceIds((items) => [...items, item.id]);
+    return true;
+  };
   const action = async (name: string, task: () => Promise<VideoProject>, message: string) => {
     if (busy) return;
     setBusy(name); setError("");
@@ -155,6 +179,14 @@ export default function ReplicationWorkshop({ initialSourceId, assets, profiles,
   const createPlan = async () => {
     if (!source || !model || busy) return;
     if (!brief.trim()) { setError("请说明要复刻什么，以及哪些内容要替换。"); return; }
+    if (replicationBriefAssetMentions(brief).some((id) => !referenceIds.includes(id))) {
+      setError("复刻说明中的 @ 素材尚未选入“替换参考”；请重新选择该素材，或删除对应标签。");
+      return;
+    }
+    if (referenceIds.some((id) => !images.some((asset) => asset.id === id))) {
+      setError("已选的图片参考不在当前资产库中；请重新选择后再规划。");
+      return;
+    }
     setBusy("plan"); setError(""); setNotice("");
     try {
       let cutFrames: number[] = []; let analysisNotice = "镜头切点已分析。";
@@ -221,7 +253,7 @@ export default function ReplicationWorkshop({ initialSourceId, assets, profiles,
 
         <div className="replication-section-heading"><b>2. 复刻意图</b><span>说清楚成片用途与变化目标</span></div>
         <label>项目名称<input value={title} maxLength={200} onChange={(event) => { setTitle(event.target.value); resetPlan(); }}/></label>
-        <label>复刻说明<textarea rows={4} maxLength={4000} placeholder="例如：保持原片的口播节奏和推镜，人物换成参考角色，产品换成 H3 Studio，环境改为未来感直播间。" value={brief} onChange={(event) => { setBrief(event.target.value); resetPlan(); }}/></label>
+        <div className="replication-brief-field"><span>复刻说明</span><PromptMentionComposer value={brief} onChange={(value) => { setBrief(value.slice(0, 4000)); resetPlan(); }} items={briefMentionItems} onSelectItem={selectBriefReference} ariaLabel="复刻说明" placeholder="例如：保持原片节奏，把黄发女孩替换为 @ 资产库角色" disabled={Boolean(busy)}/><small>输入 @ 或点右侧 @ 选择图片；选中后会自动加入下方“替换参考”。{brief.length}/4000 字</small></div>
         <fieldset><legend>需要保留</legend><div className="replication-checks">{REPLICATION_PRESERVE_OPTIONS.map((item) => <label key={item}><input type="checkbox" checked={preserve.includes(item)} onChange={() => togglePreserve(item)}/><span>{PRESERVE_LABELS[item]}</span></label>)}</div></fieldset>
         <div className="replication-replace-grid">
           <label>替换人物<input value={replaceSubject} onChange={(event) => { setReplaceSubject(event.target.value); resetPlan(); }} placeholder="人物身份、服装、外观"/></label>

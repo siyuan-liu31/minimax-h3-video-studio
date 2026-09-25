@@ -1142,6 +1142,9 @@ func (s *Service) SubmitRewrite(ctx context.Context, input map[string]any, reque
 		if math.IsNaN(value) || math.IsInf(value, 0) || value < limits[1] || value > limits[2] || (key != "inference_cfg_rate" && value != math.Trunc(value)) {
 			return nil, contract.NewError("invalid_argument", "invalid rewrite parameter: "+key)
 		}
+		if engine == "acestep" && key == "inference_cfg_rate" && value < 1 {
+			return nil, contract.NewError("invalid_argument", "ACE-Step CFG must be 1..10; 1 disables CFG, use 7 initially")
+		}
 		if key == "inference_cfg_rate" {
 			tuning[key] = value
 		} else {

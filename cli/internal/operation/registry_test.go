@@ -430,3 +430,15 @@ func TestPrepareReferenceContextCancellationCancelsRemoteMediaTask(t *testing.T)
 		t.Fatalf("cancelCalls=%d err=%#v", cancelCalls, err)
 	}
 }
+
+func TestAceRewriteRejectsDisabledGuidanceBeforeNetwork(t *testing.T) {
+	service := &Service{}
+	for _, cfg := range []float64{0, 0.2, 0.5} {
+		_, err := service.SubmitRewrite(context.Background(), map[string]any{
+			"engine": "acestep", "lyrics": "新词", "inference_cfg_rate": cfg,
+		}, "")
+		if err == nil || !strings.Contains(err.Error(), "CFG must be 1..10") {
+			t.Fatalf("CFG %v: expected actionable local error, got %v", cfg, err)
+		}
+	}
+}

@@ -615,3 +615,10 @@ GPU 租约终态、Comfy prompt 生命期、资产删除引用、API/CLI operati
 - 前端在改词工作区新增 XL-SFT，支持源/结果播放、参数复用和草稿恢复；清晰提示
   伴奏/唱法可能变化。分轨按钮仅在实际输出存在时显示。CLI 见 `docs/cli.md`。
 - 核心回归：`server/tests/test_acestep.py`、`tests/voice-studio.test.mjs`、Go operation registry。
+
+### 2026-09-25：ACE-Step 效果纠偏与断线恢复
+
+- 普通 Cover 不满足“原曲不变、歌词准确”验收；前端明确标记整曲重创作实验模式。曾完成的生成仅证明音频文件有效，不能作为效果合格证据。Flow-Edit（完整/部分时段、Cover 上下文、分离人声）五版隔离试验未通过歌词复核，未进入产品实现。
+- 新 ACE 请求的 `inference_cfg_rate` 限制为 1–10；1 关闭 CFG，>1 启用。SoulX 的原有范围不变，历史 ACE <1 记录继续可读，复用后须手动修正再提交。
+- `app/voice-studio-api.ts::request` 仅对 GET 控制面读取设 10 秒超时，覆盖响应体读取；保留外部取消并清理计时器。音频上传不使用此短超时，写请求不自动重试，避免重复提交。
+- `app/voice-studio.tsx` 对加载/错误状态和活动任务持续重试，任务读取单请求在途；能力检测失败时自动重试，“刷新”同时恢复任务与能力。任务网络错误独立于提交错误，恢复成功会清除读取错误。

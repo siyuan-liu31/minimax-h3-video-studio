@@ -17,7 +17,7 @@ class AceStepContractTests(unittest.TestCase):
         self.assertGreaterEqual(effective['seed'], 0)
         for values in ({'lyrics': '字'*4097}, {'caption':'x'*513}, {'caption':[]},
                        {'audio_cover_strength': float('nan')}, {'audio_cover_strength':True},
-                       {'audio_cover_strength':-0.1}, {'audio_cover_strength':1.1}):
+                       {'inference_cfg_rate':0.2}, {'inference_cfg_rate':0.5}, {'audio_cover_strength':-0.1}, {'audio_cover_strength':1.1}):
             with self.subTest(values=str(values)[:40]), self.assertRaises(ApiError):
                 rewrite_parameters({'lyrics':'新词', **values})
 
@@ -32,6 +32,7 @@ class AceStepContractTests(unittest.TestCase):
             self.assertTrue(capability(config)['available'])
             self.assertEqual(capability(config)['model'], 'acestep-v15-xl-sft')
             self.assertIsNone(capability(config)['quantization'])
+            self.assertEqual(capability(config)['tuning']['inference_cfg_rate']['minimum'],1)
             (root/REQUIRED[0]).unlink()
             self.assertFalse(capability(config)['available'])
 

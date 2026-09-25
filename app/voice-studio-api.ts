@@ -122,10 +122,27 @@ export function parseVoiceTask(raw: unknown): VoiceTask | undefined {
 }
 
 async function request(path: string, init: RequestInit = {}): Promise<unknown> {
-  const response = await fetch(path, { cache: "no-store", ...init });
-  const body = await response.json().catch(() => ({})) as { error?: { message?: string } };
-  if (!response.ok) throw new Error(body.error?.message ?? `换声请求失败 (${response.status})`);
-  return body;
+  const isRead = !init.method || init.method === "GET";
+  const controller = new AbortController();
+  let timedOut = false;
+  const relayAbort = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) relayAbort();
+  else init.signal?.addEventListener("abort", relayAbort, { once: true });
+  // Only bound control-plane reads; audio uploads keep their existing lifetime.
+  const timer = isRead ? setTimeout(() => { timedOut = true; controller.abort(); }, 10000) : undefined;
+  try {
+    const response = await fetch(path, { cache: "no-store", ...init, signal: controller.signal });
+    const body = await response.json() as { error?: { message?: string } };
+    if (!response.ok) throw new Error(body.error?.message ?? `换声请求失败 (${response.status})`);
+    return body;
+  } catch (failure) {
+    if (timedOut) throw new Error("连接超时，任务记录未删除；正在重试，也可点击刷新。");
+    if (failure instanceof TypeError && !init.signal?.aborted) throw new Error("连接中断，任务可能仍在服务端运行；请刷新记录确认，勿重复提交。");
+    throw failure;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    init.signal?.removeEventListener("abort", relayAbort);
+  }
 }
 
 export async function getVoiceCapabilities(signal?: AbortSignal): Promise<VoiceCapability[]> {
@@ -204,6 +221,7 @@ export async function submitRewriteTask(sourceAssetId: string, referenceAssetId:
   if (!ID.test(sourceAssetId) || !ID.test(referenceAssetId)) throw new Error("请选择原音频与参考音频");
   if (!lyrics.trim() || [...lyrics].length > 10000 || [...originalLyrics].length > 10000 || lyrics.includes("\0") || originalLyrics.includes("\0")) throw new Error("请填写新歌词，歌词最多 10000 字");
   validateRewriteParameters(parameters);
+  if (engine === "acestep" && parameters.inference_cfg_rate < 1) throw new Error("ACE-Step 引导强度须为 1–10；1 关闭 CFG，建议先用 7");
   if (engine === "acestep" && (preview || [...lyrics].length > 4096 || [...coverSettings.caption].length > 512 || !Number.isFinite(coverSettings.audio_cover_strength) || coverSettings.audio_cover_strength < 0 || coverSettings.audio_cover_strength > 1)) throw new Error("ACE-Step 歌词最多 4096 字，参考强度为 0–1，不支持首段试听");
   const body = await request("/api/voice/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ engine, ...(engine === "acestep" ? coverSettings : {}), source_asset_id: sourceAssetId, reference_asset_id: referenceAssetId, lyrics, original_lyrics: originalLyrics, ...parameters, ...(preview ? { preview: true } : {}), request_id: crypto.randomUUID().replaceAll("-", "") }) });

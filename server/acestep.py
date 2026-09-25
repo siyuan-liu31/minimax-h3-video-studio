@@ -19,6 +19,8 @@ REQUIRED = [f"{MODEL}/model-{i:05d}-of-00004.safetensors" for i in range(1, 5)] 
 
 def rewrite_parameters(data):
     lyrics, requested, effective = base_parameters({"diffusion_steps": 50, "inference_cfg_rate": 7, **data})
+    if requested["inference_cfg_rate"] < 1:
+        raise ApiError(400, "invalid_parameter", "ACE-Step 引导强度须为 1–10；1 关闭 CFG，大于 1 才启用引导，建议先用 7。")
     if len(lyrics["lyrics"]) > 4096:
         raise ApiError(400, "invalid_lyrics", "ACE-Step lyrics must be at most 4096 characters")
     caption = data.get("caption", "")
@@ -47,7 +49,7 @@ def capability(config):
             "reason": "; ".join(missing) if missing else None,
             "lyrics": {"max_length": 4096, "transcribe": False, "preview": False, "preserve_melody": False},
             "tuning": {"diffusion_steps": {"default": 50, "minimum": 16, "maximum": 100},
-                       "inference_cfg_rate": {"default": 7, "minimum": 0, "maximum": 10},
+                       "inference_cfg_rate": {"default": 7, "minimum": 1, "maximum": 10},
                        "seed": {"default": -1, "minimum": -1, "maximum": 2**32-1}},
             "cover": {"audio_cover_strength": {"default": 1, "minimum": 0, "maximum": 1},
                       "caption_max_length": 512, "duration_seconds": [10, 180]}}

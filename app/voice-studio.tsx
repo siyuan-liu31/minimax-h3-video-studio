@@ -19,7 +19,7 @@ import { applyTranscription, DRAFT_KEY, emptyLyricsDraft, lyricLines, readLyrics
 type Slot = "source" | "reference";
 type Props = { assets: LibraryAsset[]; onAssetCreated: (asset: LibraryAsset) => void; onClose: () => void };
 
-const ENGINE_LABELS: Record<VoiceEngine, string> = { acestep: "ACE-Step 1.5 XL-SFT · 改词重唱", soulx: "SoulX · 保留旋律改词", vevo2: "Vevo2 · 语音/清唱换音色", yingmusic: "YingMusic-SVC · 完整歌曲换音色" };
+const ENGINE_LABELS: Record<VoiceEngine, string> = { acestep: "ACE-Step 1.5 XL-SFT · 整曲重创作（实验）", soulx: "SoulX · 保留旋律改词", vevo2: "Vevo2 · 语音/清唱换音色", yingmusic: "YingMusic-SVC · 完整歌曲换音色" };
 const STATUS_LABELS: Record<VoiceTask["status"], string> = {
   queued: "排队中", running: "运行中", cancelling: "取消中", completed: "已完成", failed: "失败", canceled: "已取消",
 };
@@ -102,6 +102,8 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   const [submitting, setSubmitting] = useState(false);
   const [actionId, setActionId] = useState("");
   const [error, setError] = useState("");
+  const [taskError, setTaskError] = useState("");
+  const tasksReadingRef = useRef(false);
   const [steps, setSteps] = useState(String(YINGMUSIC_DEFAULTS.diffusion_steps));
   const [cfg, setCfg] = useState(String(YINGMUSIC_DEFAULTS.inference_cfg_rate));
   const [seed, setSeed] = useState(String(YINGMUSIC_DEFAULTS.seed));
@@ -148,36 +150,55 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   }, []);
 
   const refreshTasks = useCallback(async (signal?: AbortSignal) => {
+    if (tasksReadingRef.current) return;
+    tasksReadingRef.current = true;
     const requestNumber = ++refreshRequestRef.current;
     try {
       const items = await listVoiceTasks(signal);
       if (signal?.aborted || requestNumber !== refreshRequestRef.current) return;
       setTasks(items);
       setTasksState("ready");
+      setTaskError("");
     } catch (failure) {
       if (signal?.aborted || requestNumber !== refreshRequestRef.current) return;
       setTasksState("error");
-      setError(failure instanceof Error ? failure.message : "任务读取失败");
+      setTaskError(failure instanceof Error ? failure.message : "任务读取失败");
+    } finally { tasksReadingRef.current = false; }
+  }, []);
+
+  const refreshCapabilities = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const items = await getVoiceCapabilities(signal);
+      if (!signal?.aborted) { setCapabilities(items); setCapabilityState("ready"); }
+    } catch {
+      if (!signal?.aborted) setCapabilityState("error");
     }
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    void getVoiceCapabilities(controller.signal).then((items) => {
-      if (!controller.signal.aborted) { setCapabilities(items); setCapabilityState("ready"); }
-    }).catch((failure) => {
-      if (!controller.signal.aborted) { setCapabilityState("error"); setError(failure instanceof Error ? failure.message : "能力读取失败"); }
-    });
-    const initialRefresh = window.setTimeout(() => { void refreshTasks(controller.signal); }, 0);
+    const initialRefresh = window.setTimeout(() => { void refreshTasks(controller.signal); void refreshCapabilities(controller.signal); }, 0);
     return () => { window.clearTimeout(initialRefresh); controller.abort(); uploadControllerRef.current?.abort(); };
-  }, [refreshTasks]);
+  }, [refreshTasks, refreshCapabilities]);
 
   useEffect(() => {
-    if (!tasks.some((task) => ["queued", "running", "cancelling"].includes(task.status))) return;
+    if (capabilityState !== "error") return;
+    const controller = new AbortController();
+    let busy = false;
+    const retry = window.setInterval(() => {
+      if (busy) return;
+      busy = true;
+      void refreshCapabilities(controller.signal).finally(() => { busy = false; });
+    }, 5000);
+    return () => { window.clearInterval(retry); controller.abort(); };
+  }, [capabilityState, refreshCapabilities]);
+
+  useEffect(() => {
+    if (tasksState === "ready" && !tasks.some((task) => ["queued", "running", "cancelling"].includes(task.status))) return;
     const controller = new AbortController();
     const timer = window.setInterval(() => { void refreshTasks(controller.signal); }, 2500);
     return () => { window.clearInterval(timer); controller.abort(); };
-  }, [refreshTasks, tasks]);
+  }, [refreshTasks, tasks, tasksState]);
 
   const selectedCapability = capabilities.find((item) => item.id === engine);
   const transcription = tasks.find(task => task.operation === "transcribe" && task.sourceAssetId === sourceId);
@@ -200,7 +221,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   }
   let parametersValid = true;
   try { currentParameters(); } catch { parametersValid = false; }
-  const aceValid = engine !== "acestep" || ([...lyrics].length <= 4096 && Number.isFinite(coverSettings.audio_cover_strength) && coverSettings.audio_cover_strength >= 0 && coverSettings.audio_cover_strength <= 1 && (audioAssets.find(asset => asset.id === sourceId)?.media.duration ?? 0) >= 10 && (audioAssets.find(asset => asset.id === sourceId)?.media.duration ?? 0) <= 180);
+  const aceValid = engine !== "acestep" || (rewriteParameters.inference_cfg_rate >= 1 && [...lyrics].length <= 4096 && Number.isFinite(coverSettings.audio_cover_strength) && coverSettings.audio_cover_strength >= 0 && coverSettings.audio_cover_strength <= 1 && (audioAssets.find(asset => asset.id === sourceId)?.media.duration ?? 0) >= 10 && (audioAssets.find(asset => asset.id === sourceId)?.media.duration ?? 0) <= 180);
   const canSubmit = aceValid && capabilityState === "ready" && selectedCapability?.available === true && (engine !== "yingmusic" || Boolean(selectedCapability.tuning)) && (!isRewrite || (Boolean(selectedCapability.tuning) && Boolean(lyrics.trim()) && [...lyrics].length <= 10000 && [...originalLyrics].length <= 10000)) && parametersValid && audioAssets.some((asset) => asset.id === sourceId) && (isRewrite && !rewriteUseReference || audioAssets.some((asset) => asset.id === referenceId)) && !uploading && !microphonePending && !submitting && (!isRewrite || !transcriptionBusy);
 
   async function upload(slot: Slot, file: File): Promise<boolean> {
@@ -233,6 +254,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
       refreshRequestRef.current += 1;
       setTasks((current) => [task, ...current.filter((item) => item.id !== task.id)]);
       setTasksState("ready");
+      setTaskError("");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "换声提交失败");
     } finally { setSubmitting(false); }
@@ -258,11 +280,11 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
   }
 
   return <aside id="voice-studio-drawer" className={`rail-drawer voice-drawer${isRewrite ? " lyrics-workspace" : ""}`} aria-label="换声工作区">
-    <div className="rail-drawer-header"><div><strong>{isRewrite ? "改歌词" : "音频换声"}</strong><small>{engine === "acestep" ? "参考原曲重唱 · XL-SFT 4B" : isRewrite ? "保留旋律与伴奏 · 编辑新的演唱内容" : "参考音色转换 · 持久任务"}</small></div><button type="button" aria-label="关闭换声抽屉" onClick={onClose}>×</button></div>
+    <div className="rail-drawer-header"><div><strong>{engine === "acestep" ? "整曲重创作（实验）" : isRewrite ? "改歌词" : "音频换声"}</strong><small>{engine === "acestep" ? "普通 Cover · 不锁定旋律与伴奏" : isRewrite ? "保留旋律与伴奏 · 编辑新的演唱内容" : "参考音色转换 · 持久任务"}</small></div><button type="button" aria-label="关闭换声抽屉" onClick={onClose}>×</button></div>
     <div className="voice-drawer-content">
       <div className="voice-engine-picker"><label htmlFor="voice-engine">音频处理</label><select id="voice-engine" value={engine} onChange={(event) => { const next = event.target.value as VoiceEngine; setEngine(next); if (next === "acestep" || next === "soulx") setRewriteParameters(next === "acestep" ? { diffusion_steps: 50, inference_cfg_rate: 7, seed: -1 } : SOULX_DEFAULTS); }}>
         <option value="acestep">{ENGINE_LABELS.acestep}</option><option value="soulx">{ENGINE_LABELS.soulx}</option><option value="vevo2">{ENGINE_LABELS.vevo2}</option><option value="yingmusic">{ENGINE_LABELS.yingmusic}</option>
-      </select><p>{engine === "acestep" ? "输入新歌词，参考原曲结构重新演唱。伴奏与唱法可能变化；支持 10–180 秒歌曲，输出完整混音。" : isRewrite ? "按原旋律演唱新歌词，保留原伴奏。当前支持中文改词。" : engine === "vevo2" ? "给一段说话或清唱，换成参考音频的音色。" : "分离歌曲人声、换成参考音色，再与原伴奏重混。"}</p>
+      </select><p>{engine === "acestep" ? "此模式重新生成整首混音，旋律、伴奏和唱词都可能偏离输入；尚未通过保留原曲精准换词验收。支持 10–180 秒音频。" : isRewrite ? "按原旋律演唱新歌词，保留原伴奏。当前支持中文改词。" : engine === "vevo2" ? "给一段说话或清唱，换成参考音频的音色。" : "分离歌曲人声、换成参考音色，再与原伴奏重混。"}</p>
       {capabilityState === "loading" ? <small>正在检查模型可用性…</small> : capabilityState === "error" ? <small className="voice-unavailable">无法读取模型能力，暂不能提交。</small> : selectedCapability?.available ? <small className="voice-available">模型已就绪</small> : <small className="voice-unavailable">模型未就绪：{selectedCapability?.reason ?? "服务端未提供该引擎"}</small>}
       {engine === "yingmusic" && selectedCapability?.available && !selectedCapability.tuning && <small className="voice-unavailable">服务端尚未提供歌曲参数能力，请更新后再提交。</small>}
       </div>
@@ -288,10 +310,11 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
           <label className="voice-effect-option"><input type="checkbox" checked={rewriteUseReference} onChange={event => setRewriteUseReference(event.target.checked)}/>使用其他参考音色</label>
           {!rewriteUseReference && <small>{engine === "acestep" ? "参考原歌曲；不保证完全复刻原唱音色。" : "当前使用原唱音色，无需上传参考音频。"}</small>}
           {rewriteUseReference && <AudioSlot slot="reference" label="参考音频" selectedId={referenceId} assets={audioAssets} uploading={uploading !== null} onSelect={setReferenceId} onFile={file => void upload("reference", file)} onError={setError}/>}
-          {engine === "acestep" && <div className="voice-tuning-fields"><label>曲风描述（可选）<input maxLength={512} value={coverSettings.caption} onChange={event => setCoverSettings(value => ({ ...value, caption: event.target.value }))}/></label><label>原曲参考强度<input type="number" min="0" max="1" step="0.05" value={coverSettings.audio_cover_strength} onChange={event => setCoverSettings(value => ({ ...value, audio_cover_strength: Number(event.target.value) }))}/><small>0–1，默认 1；越高越贴近原曲结构。</small></label></div>}
+          {engine === "acestep" && <div className="voice-tuning-fields"><label>曲风描述（可选）<input maxLength={512} value={coverSettings.caption} onChange={event => setCoverSettings(value => ({ ...value, caption: event.target.value }))}/></label><label>原曲参考强度<input type="number" min="0" max="1" step="0.05" value={coverSettings.audio_cover_strength} onChange={event => setCoverSettings(value => ({ ...value, audio_cover_strength: Number(event.target.value) }))}/><small>0–1；降低后会减少原曲约束，可能变成另一首曲子，不是只降低原唱音量。</small></label></div>}
           <div className="voice-tuning-fields">
             <label>采样步数<input type="number" min="16" max="100" value={rewriteParameters.diffusion_steps} onChange={event => setRewriteParameters(value => ({ ...value, diffusion_steps: Number(event.target.value) }))}/></label>
-            <label>引导强度<input type="number" min="0" max="10" step="0.1" value={rewriteParameters.inference_cfg_rate} onChange={event => setRewriteParameters(value => ({ ...value, inference_cfg_rate: Number(event.target.value) }))}/></label>
+            <label>引导强度<input type="number" min={engine === "acestep" ? 1 : 0} max="10" step="0.1" value={rewriteParameters.inference_cfg_rate} onChange={event => setRewriteParameters(value => ({ ...value, inference_cfg_rate: Number(event.target.value) }))}/></label>
+            {engine === "acestep" && <small role="note">引导强度 1–10：1 关闭 CFG，大于 1 才启用；先用 7。它不能锁住原曲旋律。{rewriteParameters.inference_cfg_rate < 1 && " 当前值低于 1，请改为 7 后再提交。"}</small>}
             <label>随机种子<input type="number" min="-1" max="4294967295" value={rewriteParameters.seed} onChange={event => setRewriteParameters(value => ({ ...value, seed: Number(event.target.value) }))}/></label>
           </div>
         </details>
@@ -322,10 +345,10 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
       <p className="voice-format-note">支持 WAV、FLAC、OGG、MP3；服务端会校验真实格式。结果输出 WAV。</p>
       {error && <div className="voice-error" role="alert">{error}</div>}
       {engine === "soulx" && <button className="voice-preview" type="button" disabled={!canSubmit || !selectedCapability?.rewritePreview} onClick={() => void submit(true)}>先试听第一段</button>}
-      <button className="voice-submit" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting ? "提交中…" : isRewrite ? "生成完整改词歌曲" : "开始换声"}</button>
-      <section className="voice-history" aria-label="换声任务历史"><div className="voice-history-heading"><strong>{isRewrite ? "改词与试听记录" : "换声任务"}</strong><button type="button" onClick={() => void refreshTasks()}>刷新</button></div>
+      <button className="voice-submit" type="button" disabled={!canSubmit} onClick={() => void submit()}>{submitting ? "提交中…" : isRewrite ? (engine === "acestep" ? "生成整曲重创作（实验）" : "生成完整改词歌曲") : "开始换声"}</button>
+      <section className="voice-history" aria-label="换声任务历史"><div className="voice-history-heading"><strong>{isRewrite ? "改词与试听记录" : "换声任务"}</strong><button type="button" onClick={() => { void refreshTasks(); void refreshCapabilities(); }}>刷新</button></div>
         {tasksState === "loading" && <p>正在读取任务…</p>}
-        {tasksState === "error" && <p>任务读取失败，点击刷新重试。</p>}
+        {tasksState === "error" && <p>{taskError || "任务读取失败"} 正在自动重试。</p>}
         {tasksState === "ready" && tasks.length === 0 && <p>还没有换声任务。</p>}
         {tasks.filter(task => isRewrite ? ["soulx", "acestep"].includes(task.engine) : !["soulx", "acestep"].includes(task.engine)).map((task) => <article className={`voice-task status-${task.status}`} key={task.id}>
           <div className="voice-task-top"><strong>{task.operation === "transcribe" ? "原歌词识别" : task.preview ? "改词试听 · 第一段" : ENGINE_LABELS[task.engine]}</strong><span>{STATUS_LABELS[task.status]}</span></div>
@@ -337,6 +360,7 @@ export default function VoiceStudio({ assets, onAssetCreated, onClose }: Props) 
           <div className="voice-task-progress"><progress max="100" value={task.progress} aria-label="换声进度"/><span>{Math.round(task.progress)}%</span></div>
           <p><span>{STAGE_LABELS[task.stage] ?? task.stage}</span>{task.status === "queued" && typeof task.queuePosition === "number" && <> · <span>{`队列第 ${task.queuePosition} 位`}</span></>}{task.queueReason && <> · <span>{QUEUE_REASONS[task.queueReason] ?? task.queueReason}</span></>}</p>
           {task.error && <p className="voice-task-error">{task.error}</p>}
+          {task.engine === "acestep" && task.status === "completed" && <p className="lyrics-hint">音频文件已生成；歌词与旋律未经效果验收，请对比原曲试听。</p>}
           {task.status === "completed" && <VoiceTaskResult task={task} source={audioAssets.find(asset => asset.id === task.sourceAssetId)} onUpdated={updated => { refreshRequestRef.current += 1; setTasks(current => current.map(item => item.id === updated.id ? updated : item)); }}/>}
           <div className="voice-task-actions">{["queued", "running", "cancelling"].includes(task.status) ? <button type="button" disabled={Boolean(actionId) || task.status === "cancelling"} onClick={() => void act(task, "cancel")}>取消任务</button> : <button type="button" disabled={Boolean(actionId)} onClick={() => void act(task, "delete")}>删除记录</button>}</div>
         </article>)}

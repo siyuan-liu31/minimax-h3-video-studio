@@ -635,7 +635,7 @@ h3ctl voice download TASK_ID --track remix --to remix.wav
 
 将占位符替换为实际 32 位资产/任务 ID。识别结果为 completed 回执中的 `detected_lyrics`；混音只消耗 CPU，要求原任务保留干声和伴奏，不改变原始生成混音。
 
-### ACE-Step 1.5 XL-SFT 改词重唱
+### ACE-Step 1.5 XL-SFT 整曲重创作（实验）
 
 ```bash
 h3ctl voice rewrite asset:ASSET_ID --engine acestep --lyrics-file new-lyrics.txt \
@@ -646,6 +646,6 @@ h3ctl voice rewrite asset:ASSET_ID --engine acestep --lyrics-file new-lyrics.txt
 `audio_cover_strength`（0–1，默认 1）。不传 engine 仍是 SoulX。XL-SFT 固定 4B BF16，
 不使用 INT8/INT4；Cover 直接参考源音频，不加载可选音乐规划 LM。
 源歌曲限制 10–180 秒，新歌词最多 4096 字符；原歌词可留空（仅用于对照保存）。
-默认 50 步、CFG 7；生成可能改变伴奏和唱法，不承诺逐音符不变。
+默认 50 步、CFG 7。CFG 接受 1–10，1 关闭 CFG，大于 1 才启用。普通 Cover 会重新生成旋律、伴奏和人声，尚未通过保留原曲精准换词验收；生成成功仅代表音频文件有效。
 仅返回 `mix`，不支持 `--preview` 或分轨重新混音；原曲和结果仍可 A/B 播放。
 取消、轮询、下载及重启恢复沿用持久 voice 任务合同。

@@ -118,7 +118,8 @@ test("voice drawer is wired to upload/drop, persisted task polling, cancellation
   assert.match(studio, /railPanel === "voice" && <VoiceStudio/);
   assert.match(drawer, /onDrop=\{drop\}/);
   assert.match(drawer, /uploadVoiceAudio\(file, controller\.signal\)/);
-  assert.match(drawer, /getVoiceCapabilities\(controller\.signal\)/);
+  assert.match(drawer, /getVoiceCapabilities\(signal\)/);
+  assert.match(drawer, /refreshCapabilities\(controller\.signal\)/);
   assert.match(drawer, /listVoiceTasks\(signal\)/);
   assert.match(drawer, /window\.setInterval/);
   assert.match(drawer, /submitVoiceTask\(engine, sourceId, referenceId, currentParameters\(\),/);
@@ -181,11 +182,44 @@ test("ACE-Step cover submission keeps model, text, reference strength and result
   try {
     const result = await submitRewriteTask(sourceId, sourceId, "新歌词", "原歌词", parameters, false, "acestep", {caption:"pop",audio_cover_strength:0.8});
     assert.equal(sent.engine, "acestep");
+    await assert.rejects(submitRewriteTask(sourceId, sourceId, "新词", "原词", {...parameters, inference_cfg_rate:0.5}, false, "acestep"), /1–10/);
     assert.equal(sent.audio_cover_strength, 0.8);
     assert.equal(result.coverSettings.caption, "pop");
     assert.equal(result.parameters.inference_cfg_rate, 7);
     assert.deepEqual(Object.keys(result.parameters).sort(), ["diffusion_steps", "inference_cfg_rate", "seed"]);
     await assert.rejects(submitRewriteTask(sourceId, sourceId, "新词", "", parameters, true, "acestep"));
     await assert.rejects(submitRewriteTask(sourceId, sourceId, "字".repeat(4097), "", parameters, false, "acestep"));
+  } finally { globalThis.fetch = previous; }
+});
+
+
+test("task reads time out and a later refresh can recover", async (t) => {
+  const previous = globalThis.fetch;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let signal;
+  globalThis.fetch = async (_url, init) => {
+    signal = init.signal;
+    return new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }));
+  };
+  try {
+    const pending = assert.rejects(listVoiceTasks(), /连接超时/);
+    t.mock.timers.tick(10000);
+    await pending;
+    assert.equal(signal.aborted, true);
+    globalThis.fetch = async () => reply({ items: [task] });
+    assert.equal((await listVoiceTasks())[0].id, taskId);
+  } finally { globalThis.fetch = previous; t.mock.timers.reset(); }
+});
+
+test("caller cancellation is preserved instead of reported as connection timeout", async () => {
+  const previous = globalThis.fetch;
+  const controller = new AbortController();
+  globalThis.fetch = async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+  });
+  try {
+    const pending = listVoiceTasks(controller.signal);
+    controller.abort();
+    await assert.rejects(pending, { name: "AbortError" });
   } finally { globalThis.fetch = previous; }
 });

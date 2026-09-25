@@ -28,6 +28,7 @@ const VoiceHelp = `Usage: h3ctl voice COMMAND
   capabilities
 
 rewrite defaults to soulx (32 steps / CFG 3); acestep uses XL-SFT (50 steps / CFG 7).
+acestep is experimental whole-song Cover, not precise lyric replacement. CFG: 1..10 (1 disables CFG).
 acestep accepts 10-180s sources and 4096-character lyrics; --preview is SoulX only.
 vevo2 uses the reviewed FM-only style-preserved VC/SVC path.
 yingmusic runs the official separation, singing conversion, and remix pipeline.

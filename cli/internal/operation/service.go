@@ -280,11 +280,11 @@ func (s *Service) MuxAudio(ctx context.Context, video, audio string, body map[st
 }
 
 func (s *Service) SubmitVoice(ctx context.Context, engine, source, reference, requestID string, tuning ...map[string]any) (map[string]any, error) {
-	if engine != "vevo2" && engine != "yingmusic" && engine != "soulx" {
-		return nil, contract.NewError("invalid_argument", "voice engine must be vevo2 or yingmusic")
+	if engine != "vevo2" && engine != "yingmusic" && engine != "soulx" && engine != "acestep" {
+		return nil, contract.NewError("invalid_argument", "voice engine must be vevo2, yingmusic, soulx or acestep")
 	}
-	if len(tuning) > 1 || (engine != "yingmusic" && engine != "soulx" && len(tuning) > 0 && len(tuning[0]) > 0) {
-		return nil, contract.NewError("invalid_argument", "voice tuning is supported only for yingmusic")
+	if len(tuning) > 1 || (engine != "yingmusic" && engine != "soulx" && engine != "acestep" && len(tuning) > 0 && len(tuning[0]) > 0) {
+		return nil, contract.NewError("invalid_argument", "voice tuning is supported only for yingmusic, soulx or acestep")
 	}
 	if requestID == "" {
 		raw := make([]byte, 16)
@@ -308,7 +308,7 @@ func (s *Service) SubmitVoice(ctx context.Context, engine, source, reference, re
 	if len(tuning) == 1 {
 		for key, value := range tuning[0] {
 			switch key {
-			case "diffusion_steps", "inference_cfg_rate", "seed", "output_options", "lyrics", "original_lyrics", "preview", "operation":
+			case "diffusion_steps", "inference_cfg_rate", "seed", "output_options", "lyrics", "original_lyrics", "preview", "operation", "caption", "audio_cover_strength":
 				body[key] = value
 			default:
 				return nil, contract.NewError("invalid_argument", "unsupported voice tuning parameter")
@@ -1083,15 +1083,55 @@ func stringValue(value any, fallback string) string {
 
 // SubmitRewrite uses the same durable voice queue and download contract.
 func (s *Service) SubmitRewrite(ctx context.Context, input map[string]any, requestID string) (map[string]any, error) {
+	engine := stringValue(input["engine"], "soulx")
+	if engine != "soulx" && engine != "acestep" {
+		return nil, contract.NewError("invalid_argument", "rewrite engine must be soulx or acestep")
+	}
 	lyrics := stringValue(input["lyrics"], "")
 	original := stringValue(input["original_lyrics"], "")
 	if strings.TrimSpace(lyrics) == "" || strings.ContainsRune(lyrics, 0) || strings.ContainsRune(original, 0) || !utf8.ValidString(lyrics) || utf8.RuneCountInString(lyrics) > 10000 || !utf8.ValidString(original) || utf8.RuneCountInString(original) > 10000 {
 		return nil, contract.NewError("invalid_argument", "lyrics must be UTF-8, nonempty and at most 10000 characters")
 	}
+	if engine == "acestep" && utf8.RuneCountInString(lyrics) > 4096 {
+		return nil, contract.NewError("invalid_argument", "ACE-Step lyrics exceed 4096 characters")
+	}
 	tuning := map[string]any{"lyrics": lyrics, "original_lyrics": original}
+	if engine == "acestep" {
+		if input["preview"] == true {
+			return nil, contract.NewError("invalid_argument", "ACE-Step does not support first-segment preview")
+		}
+		caption := stringValue(input["caption"], "")
+		if utf8.RuneCountInString(caption) > 512 || strings.ContainsRune(caption, 0) {
+			return nil, contract.NewError("invalid_argument", "caption exceeds 512 characters or contains NUL")
+		}
+		strength := 1.0
+		if raw, exists := input["audio_cover_strength"]; exists {
+			var ok bool
+			strength, ok = number(raw)
+			if !ok {
+				return nil, contract.NewError("invalid_argument", "invalid cover strength")
+			}
+		}
+		if math.IsNaN(strength) || math.IsInf(strength, 0) || strength < 0 || strength > 1 {
+			return nil, contract.NewError("invalid_argument", "cover strength must be 0..1")
+		}
+		tuning["caption"], tuning["audio_cover_strength"] = caption, strength
+	} else if _, ok := input["audio_cover_strength"]; ok {
+		return nil, contract.NewError("invalid_argument", "cover settings require acestep")
+	} else if _, ok := input["caption"]; ok {
+		return nil, contract.NewError("invalid_argument", "cover settings require acestep")
+	}
 	copyOptional(tuning, input, "preview")
 	for key, limits := range map[string][3]float64{"diffusion_steps": {32, 16, 100}, "inference_cfg_rate": {3, 0, 10}, "seed": {-1, -1, 4294967295}} {
 		value := limits[0]
+		if engine == "acestep" {
+			if key == "diffusion_steps" {
+				value = 50
+			}
+			if key == "inference_cfg_rate" {
+				value = 7
+			}
+		}
 		if raw, exists := input[key]; exists {
 			var ok bool
 			value, ok = number(raw)
@@ -1113,5 +1153,5 @@ func (s *Service) SubmitRewrite(ctx context.Context, input map[string]any, reque
 	if reference == "" {
 		reference = source
 	}
-	return s.SubmitVoice(ctx, "soulx", source, reference, requestID, tuning)
+	return s.SubmitVoice(ctx, engine, source, reference, requestID, tuning)
 }

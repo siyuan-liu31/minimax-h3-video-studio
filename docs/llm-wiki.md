@@ -592,3 +592,26 @@ GPU 租约终态、Comfy prompt 生命期、资产删除引用、API/CLI operati
 - SoulX 合成的人声在混音前按原唱去混响人声 RMS 校准，增益限制 0.25–4 倍；伴奏原样保留。分离残留和模型演唱质量仍受源素材影响。
 - `POST /api/voice/tasks/:id/remix` 接受 `vocal_gain_db`、`accompaniment_gain_db`（有限数值 −18…12，默认 0）。仅对已完成且保留双分轨的任务可用，CPU ffmpeg 混音（按伴奏采样率及立体声处理），浮点峰值测量后只在需要时整体衰减至 −0.2 dB，原子更新 `remix.wav`。原始 mix/干声/伴奏不覆盖；回执增加 `outputs.remix` 与 `mix_parameters`。preview/download 的 track 新增 remix；浏览器按输出 SHA 刷新缓存。混音与删除互斥。
 - `server/voice_mix.py` 负责不依赖模型的混音。CLI Agent operations 新增 `voice.transcribe`（source / 可选 wait）和 `voice.remix`；`voice.rewrite --preview` 只试听首段。词数差异提示仅供编辑参考，不保证逐句完美对齐。
+
+### 2026-09-25：ACE-Step XL-SFT Cover
+
+- `server/acestep.py` 定义引擎 `acestep` 的配置探测、输入合同和锁定版本；
+  `server/acestep_worker.py` 在已有 voice 独占 GPU Worker 中调用上游 Python API。
+  所有初始化/推理日志重定向 stderr，stdout 保留 JSON 协议。切换模型、取消和
+  空闲释放沿用 GPU manager；没有新增常驻 GPU 服务或绕开队列的 ComfyUI 任务。
+- 固定 `acestep-v15-xl-sft`（4B）、BF16、官方 VAE，不启用量化、编译或模型降级。
+  Cover 不加载可选 LM。上游默认组件预检包含 Turbo/LM，适配器仅将该清单收窄为
+  实际加载的 XL-SFT、VAE、Qwen3-Embedding-0.6B，不修改外部源码。
+- 上游 revision `ca1e85fe9430179831e6bc6be790c332190a3866`；XL 权重 revision
+  `d06de46b4622f781cf07f4a013a67d591ca52819`；VAE/文本编码器 revision
+  `19671f406d603126926c1b7e2adc169acbcade22`。
+- 环境：`H3_STUDIO_ACESTEP_ROOT`（上游仓库）、`H3_STUDIO_ACESTEP_PYTHON`（独立环境）、
+  `H3_STUDIO_ACESTEP_MODELS`（包含 XL-SFT、vae、Qwen3-Embedding-0.6B 子目录）。
+  必须预下载锁定模型；推理期间设置 HF/Transformers 离线，避免悄悄下载默认模型。
+- POST `/api/voice/tasks` 接受 `engine: "acestep"`、歌词、来源/可选参考音频及
+  `caption` / `audio_cover_strength`。10–180 秒、歌词最多 4096 字，默认 50 步 / CFG 7。
+  完整参数参与幂等摘要并持久化；仅生成 mix，不支持首段 preview 或转录。
+  原歌词仍可保存供用户对照，但不作为 ACE-Step 条件。UI 可显式调用既有 SoulX 转录辅助。
+- 前端在改词工作区新增 XL-SFT，支持源/结果播放、参数复用和草稿恢复；清晰提示
+  伴奏/唱法可能变化。分轨按钮仅在实际输出存在时显示。CLI 见 `docs/cli.md`。
+- 核心回归：`server/tests/test_acestep.py`、`tests/voice-studio.test.mjs`、Go operation registry。

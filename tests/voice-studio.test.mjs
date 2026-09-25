@@ -168,3 +168,23 @@ test("SoulX rewrite validates new lyrics, keeps parameters and restores history"
     assert.equal(translateUiText("开始改词翻唱", "en"), "Generate rewritten song");
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("ACE-Step cover submission keeps model, text, reference strength and result settings", async () => {
+  const { submitRewriteTask } = await import("../app/voice-studio-api.ts");
+  const previous = globalThis.fetch;
+  const parameters = { diffusion_steps: 50, inference_cfg_rate: 7, seed: 123 };
+  let sent;
+  globalThis.fetch = async (_url, init) => {
+    sent = JSON.parse(init.body);
+    return reply({ ...task, engine: "acestep", lyrics: sent.lyrics, parameters: {...parameters, caption: "pop", audio_cover_strength:0.8} });
+  };
+  try {
+    const result = await submitRewriteTask(sourceId, sourceId, "新歌词", "原歌词", parameters, false, "acestep", {caption:"pop",audio_cover_strength:0.8});
+    assert.equal(sent.engine, "acestep");
+    assert.equal(sent.audio_cover_strength, 0.8);
+    assert.equal(result.coverSettings.caption, "pop");
+    assert.equal(result.parameters.inference_cfg_rate, 7);
+    await assert.rejects(submitRewriteTask(sourceId, sourceId, "新词", "", parameters, true, "acestep"));
+    await assert.rejects(submitRewriteTask(sourceId, sourceId, "字".repeat(4097), "", parameters, false, "acestep"));
+  } finally { globalThis.fetch = previous; }
+});

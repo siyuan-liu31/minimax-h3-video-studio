@@ -21,6 +21,7 @@ from .errors import ApiError
 from .gpu_resources import GpuResourceManager
 from .security import validate_id
 from .storage import AssetStore, JsonStore
+from .voice_mix import remix_audio, mix_parameters
 
 
 ENGINES = {"vevo2", "yingmusic", "soulx"}
@@ -236,7 +237,7 @@ class VoiceTaskManager:
 
     def submit(self, data: dict[str, Any]) -> dict[str, Any]:
         tuning = {"diffusion_steps", "inference_cfg_rate", "seed"}
-        allowed = {"engine", "source_asset_id", "reference_asset_id", "request_id", "output_options", "lyrics", "original_lyrics"} | tuning
+        allowed = {"engine", "source_asset_id", "reference_asset_id", "request_id", "output_options", "lyrics", "original_lyrics", "operation", "preview"} | tuning
         if set(data) - allowed:
             raise ApiError(400, "invalid_parameter", "voice conversion contains unsupported fields")
         engine = str(data.get("engine", ""))
@@ -248,15 +249,25 @@ class VoiceTaskManager:
             raise ApiError(400, "invalid_parameter", "output_options are supported only for yingmusic")
         if engine != "soulx" and {"lyrics", "original_lyrics"} & set(data):
             raise ApiError(400, "invalid_parameter", "lyrics require the soulx engine")
+        operation = data.get("operation", "convert")
+        preview = data.get("preview", False)
+        if not isinstance(operation, str) or operation not in {"convert", "transcribe"} or type(preview) is not bool:
+            raise ApiError(400, "invalid_parameter", "invalid voice operation or preview")
+        if engine != "soulx" and ("operation" in data or "preview" in data):
+            raise ApiError(400, "invalid_parameter", "transcription and preview require soulx")
+        if operation == "transcribe" and (preview or set(data) & (tuning | {"lyrics", "original_lyrics", "output_options"})):
+            raise ApiError(400, "invalid_parameter", "transcription accepts source audio only")
         lyrics = {}
-        if engine == "soulx":
+        if operation == "transcribe":
+            requested, parameters = {}, {}
+        elif engine == "soulx":
             from .soulx import rewrite_parameters
             lyrics, requested, parameters = rewrite_parameters(data)
         else:
             requested, parameters = yingmusic_parameters(data) if engine == "yingmusic" else ({}, {})
         output_options = yingmusic_output_options(data["output_options"]) if "output_options" in data else dict(YINGMUSIC_OUTPUT_DEFAULTS)
         source_id = validate_id(str(data.get("source_asset_id", "")), "source asset id")
-        reference_id = validate_id(str(data.get("reference_asset_id", "")), "reference asset id")
+        reference_id = validate_id(str(data.get("reference_asset_id", source_id if engine == "soulx" else "")), "reference asset id")
         source, reference = self.assets.get(source_id), self.assets.get(reference_id)
         if source.get("kind") != "audio" or reference.get("kind") != "audio":
             raise ApiError(400, "voice_media_kind", "source and reference assets must both be audio")
@@ -273,6 +284,10 @@ class VoiceTaskManager:
         if "output_options" in data:
             digest_value["output_options"] = output_options
         if engine == "soulx":
+            if operation == "transcribe":
+                digest_value["operation"] = operation
+            if preview:
+                digest_value["preview"] = True
             digest_value.update(lyrics)
             digest_value["parameters"] = requested
         digest = hashlib.sha256(json.dumps(digest_value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -298,9 +313,11 @@ class VoiceTaskManager:
                 task["parameters"] = parameters
                 task["output_options"] = output_options
             if engine == "soulx":
+                task.update(operation=operation, preview=preview)
                 task.update(lyrics)
-                task["parameters"] = parameters
-                task["output_options"] = {"include_stems": True, "echo": False, "reverb": False}
+                if operation != "transcribe":
+                    task["parameters"] = parameters
+                    task["output_options"] = {"include_stems": True, "echo": False, "reverb": False}
             self.store.put(task_id, task)
 
             def run(cancel: threading.Event, update) -> dict[str, Any]:
@@ -315,14 +332,15 @@ class VoiceTaskManager:
         task = self.store.get(task_id)
         output_dir = self.output_root / task_id
         output_dir.mkdir(parents=True, exist_ok=True)
-        output = output_dir / "converted.wav"
+        transcribe = task.get("operation") == "transcribe"
+        output = output_dir / ("transcription.json" if transcribe else "converted.wav")
         self._update(task_id, status="running", stage="loading_model", progress=5)
         update("loading_model", 0.05)
         try:
             source = self.assets.content_path(self.assets.get(str(task["source_asset_id"])))
             reference = self.assets.content_path(self.assets.get(str(task["reference_asset_id"])))
-            self._update(task_id, stage="inference", progress=15)
-            update("inference", 0.15)
+            self._update(task_id, stage="transcribing" if transcribe else "inference", progress=15)
+            update("transcribing" if transcribe else "inference", 0.15)
             worker_request = {
                 "task_id": task_id, "source": str(source), "reference": str(reference), "output": str(output),
             }
@@ -330,12 +348,21 @@ class VoiceTaskManager:
                 worker_request["parameters"] = task["parameters"]
                 worker_request["output_options"] = task.get("output_options", YINGMUSIC_OUTPUT_DEFAULTS)
             if task["engine"] == "soulx":
-                worker_request.update({key: task[key] for key in ("lyrics", "original_lyrics", "parameters", "output_options")})
+                worker_request.update({key: task[key] for key in ("lyrics", "original_lyrics", "parameters", "output_options", "operation", "preview") if key in task})
             result = self.worker.run(str(task["engine"]), worker_request, cancel)
             if cancel.is_set():
                 raise ApiError(409, "voice_canceled", "voice conversion was canceled")
             if not output.is_file() or output.stat().st_size <= 0:
                 raise ApiError(502, "voice_output_missing", "voice worker produced no output")
+            if transcribe:
+                if output.stat().st_size > 200000:
+                    raise ApiError(502, "invalid_transcription", "transcription exceeds size limit")
+                recognized = json.loads(output.read_text(encoding="utf-8")).get("lyrics")
+                if not isinstance(recognized, str) or not recognized.strip() or len(recognized) > 10000:
+                    raise ApiError(422, "empty_transcription", "未识别到有效歌词，请换一段清晰的演唱或手动填写原词。")
+                completed = self._update(task_id, status="completed", stage="completed", progress=100, detected_lyrics=recognized)
+                update("completed", 1.0)
+                return {"task_id": task_id, "detected_lyrics": completed["detected_lyrics"]}
             tracks = {"mix": output}
             if task["engine"] in {"yingmusic", "soulx"} and task.get("output_options", {}).get("include_stems"):
                 tracks.update({key: output_dir / name for key, name in YINGMUSIC_TRACK_FILES.items() if key != "mix"})
@@ -408,17 +435,32 @@ class VoiceTaskManager:
 
     def output_path(self, task_id: str, track: str = "mix") -> Path:
         task_id = validate_id(task_id, "voice task id")
-        if track not in YINGMUSIC_TRACK_FILES:
+        if track not in {*YINGMUSIC_TRACK_FILES, "remix"}:
             raise ApiError(400, "voice_track_invalid", "unknown voice output track")
         task = self.store.get(task_id)
         if task.get("status") != "completed" or not isinstance(task.get("output"), dict):
             raise ApiError(409, "voice_not_completed", "voice task has no completed output")
         if track != "mix" and (not isinstance(task.get("outputs"), dict) or track not in task["outputs"]):
             raise ApiError(404, "voice_track_missing", "voice output track was not retained")
-        path = self.output_root / task_id / YINGMUSIC_TRACK_FILES[track]
+        path = self.output_root / task_id / ("remix.wav" if track == "remix" else YINGMUSIC_TRACK_FILES[track])
         if not path.is_file():
             raise ApiError(404, "voice_output_missing", "voice output no longer exists")
         return path
+
+    def remix(self, task_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        parameters = mix_parameters(data)
+        task_id = validate_id(task_id, "voice task id")
+        # Serialize replacement against deletion and concurrent remix requests.
+        with self._lock:
+            vocal = self.output_path(task_id, "dry_vocal")
+            backing = self.output_path(task_id, "accompaniment")
+            output = self.output_root / task_id / "remix.wav"
+            remix_audio(vocal, backing, output, parameters)
+            task = self.store.get(task_id)
+            outputs = dict(task.get("outputs", {}))
+            outputs["remix"] = {"filename": output.name, "size": output.stat().st_size,
+                                "sha256": self.assets.hash_file(output)}
+            return self.public(self._update(task_id, outputs=outputs, mix_parameters=parameters))
 
     def delete(self, task_id: str) -> dict[str, Any]:
         task_id = validate_id(task_id, "voice task id")
@@ -433,7 +475,7 @@ class VoiceTaskManager:
     def public(self, task: dict[str, Any]) -> dict[str, Any]:
         value = {key: task[key] for key in (
             "id", "task_id", "engine", "source_asset_id", "reference_asset_id",
-            "status", "stage", "progress", "created_at", "updated_at", "output", "outputs", "output_options", "error", "parameters", "lyrics", "original_lyrics",
+            "status", "stage", "progress", "created_at", "updated_at", "output", "outputs", "output_options", "error", "parameters", "lyrics", "original_lyrics", "detected_lyrics", "operation", "preview", "mix_parameters",
         ) if key in task}
         resource_id = task.get("resource_task_id")
         if isinstance(resource_id, str) and task.get("status") == "queued":
@@ -462,7 +504,7 @@ class VoiceTaskManager:
                 }
                 capability["output_options"] = dict(YINGMUSIC_OUTPUT_DEFAULTS)
             if engine == "soulx":
-                capability["lyrics"] = {"max_length": 10000, "languages": ["Mandarin"], "preserve_melody": True}
+                capability["lyrics"] = {"max_length": 10000, "languages": ["Mandarin"], "preserve_melody": True, "transcribe": True, "preview": True}
                 capability["tuning"] = {
                     "diffusion_steps": {"default": 32, "minimum": 16, "maximum": 100},
                     "inference_cfg_rate": {"default": 3, "minimum": 0, "maximum": 10},

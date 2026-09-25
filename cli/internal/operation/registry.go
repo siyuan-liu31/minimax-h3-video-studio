@@ -242,7 +242,7 @@ func buildDefinitions() map[string]Definition {
 	})
 
 	add("voice.rewrite", []string{"source", "lyrics"}, map[string]any{
-		"source": stringRule, "reference": stringRule,
+		"source": stringRule, "reference": stringRule, "preview": boolRule,
 		"lyrics":             map[string]any{"type": "string", "minLength": 1, "maxLength": 10000},
 		"original_lyrics":    map[string]any{"type": "string", "maxLength": 10000},
 		"diffusion_steps":    map[string]any{"type": "integer", "minimum": 16, "maximum": 100},
@@ -251,11 +251,13 @@ func buildDefinitions() map[string]Definition {
 		"request_id":         idRule, "wait": boolRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0),
 		"download": stringRule, "download_track": enum("mix", "dry_vocal", "accompaniment"), "force": boolRule,
 	})
+	add("voice.transcribe", []string{"source"}, map[string]any{"source": stringRule, "request_id": idRule, "wait": boolRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0)})
+	add("voice.remix", []string{"task_id"}, map[string]any{"task_id": idRule, "vocal_gain_db": map[string]any{"type": "number", "minimum": -18, "maximum": 12}, "accompaniment_gain_db": map[string]any{"type": "number", "minimum": -18, "maximum": 12}})
 	add("voice.get", []string{"task_id"}, map[string]any{"task_id": idRule})
 	add("voice.wait", []string{"task_id"}, map[string]any{"task_id": idRule, "timeout_seconds": numberRule(0), "poll_seconds": numberRule(0)})
 	add("voice.cancel", []string{"task_id"}, map[string]any{"task_id": idRule})
 	add("voice.delete", []string{"task_id"}, map[string]any{"task_id": idRule})
-	add("voice.download", []string{"task_id", "to"}, map[string]any{"task_id": idRule, "to": stringRule, "track": enum("mix", "dry_vocal", "accompaniment"), "force": boolRule})
+	add("voice.download", []string{"task_id", "to"}, map[string]any{"task_id": idRule, "to": stringRule, "track": enum("mix", "dry_vocal", "accompaniment", "remix"), "force": boolRule})
 	add("gpu.status", nil, map[string]any{})
 	projectID := map[string]any{"project_id": idRule}
 	add("project.create", []string{"spec"}, map[string]any{"spec": map[string]any{"type": "object"}})

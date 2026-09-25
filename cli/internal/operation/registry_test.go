@@ -282,6 +282,8 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 		{"douyin.retry", fmt.Sprintf(`{"task_id":%q}`, idC), "POST", "/api/douyin/tasks/" + idC + "/retry", "", nil, 1},
 		{"voice.convert", fmt.Sprintf(`{"engine":"vevo2","source":"asset:%s","reference":"asset:%s"}`, idA, idB), "POST", "/api/voice/tasks", "engine", "vevo2", 1},
 		{"voice.rewrite", fmt.Sprintf(`{"source":"asset:%s","lyrics":"新的歌词"}`, idA), "POST", "/api/voice/tasks", "engine", "soulx", 1},
+		{"voice.transcribe", fmt.Sprintf(`{"source":"asset:%s"}`, idA), "POST", "/api/voice/tasks", "operation", "transcribe", 1},
+		{"voice.remix", fmt.Sprintf(`{"task_id":%q,"vocal_gain_db":-3,"accompaniment_gain_db":3}`, idC), "POST", "/api/voice/tasks/" + idC + "/remix", "vocal_gain_db", float64(-3), 1},
 		{"voice.get", fmt.Sprintf(`{"task_id":%q}`, idC), "GET", "/api/voice/tasks/" + idC, "", nil, 1},
 		{"voice.wait", fmt.Sprintf(`{"task_id":%q,"timeout_seconds":1,"poll_seconds":0.001}`, idC), "GET", "/api/voice/tasks/" + idC, "", nil, 1},
 		{"voice.cancel", fmt.Sprintf(`{"task_id":%q}`, idC), "POST", "/api/voice/tasks/" + idC + "/cancel", "", nil, 1},

@@ -64,3 +64,34 @@ class RewriteTaskTests(unittest.TestCase):
     def test_lyrics_rejected_on_voice_conversion(self):
         with self.assertRaises(ApiError):
             self.manager.submit({'engine':'vevo2','source_asset_id':'a'*32,'reference_asset_id':'b'*32,'lyrics':'新词'})
+
+    def test_transcription_has_text_receipt_and_preview_is_forwarded(self):
+        def transcribe(engine, request, cancel):
+            import json
+            self.worker.requests.append(request)
+            Path(request['output']).write_text(json.dumps({'lyrics':'识别到的原词'}))
+            return {'ok':True}
+        with patch('server.voice.voice_capability', return_value={'available': True}), patch.object(self.worker,'run',side_effect=transcribe):
+            submitted=self.manager.submit({'engine':'soulx','operation':'transcribe','source_asset_id':'a'*32})
+            completed=self.wait_terminal(submitted['id'])
+            self.assertEqual(completed['status'],'completed')
+            self.assertEqual(completed['detected_lyrics'],'识别到的原词')
+            self.assertNotIn('output',completed)
+            self.assertEqual(completed['reference_asset_id'],'a'*32)
+        with patch('server.voice.voice_capability', return_value={'available': True}):
+            preview=self.manager.submit({'engine':'soulx','preview':True,'source_asset_id':'a'*32,'lyrics':'新歌词'})
+            self.assertEqual(self.wait_terminal(preview['id'])['status'],'completed')
+            self.assertTrue(self.worker.requests[-1]['preview'])
+
+    def test_remix_keeps_baseline_and_receipt_survives_reload(self):
+        with patch('server.voice.voice_capability', return_value={'available': True}):
+            task=self.manager.submit({'engine':'soulx','source_asset_id':'a'*32,'lyrics':'新词'})
+            task=self.wait_terminal(task['id'])
+        baseline=self.manager.output_path(task['id']).read_bytes()
+        def mix(vocal,backing,output,parameters): output.write_bytes(b'RIFFremixed')
+        with patch('server.voice.remix_audio',side_effect=mix):
+            updated=self.manager.remix(task['id'],{'vocal_gain_db':-3,'accompaniment_gain_db':3})
+        self.assertIn('remix',updated['outputs'])
+        self.assertEqual(self.manager.output_path(task['id']).read_bytes(),baseline)
+        self.assertEqual(self.manager.get(task['id'])['mix_parameters']['vocal_gain_db'],-3)
+        self.assertEqual(self.manager.output_path(task['id'],'remix').read_bytes(),b'RIFFremixed')

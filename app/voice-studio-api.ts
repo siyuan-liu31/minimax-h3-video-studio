@@ -3,10 +3,11 @@ import { remoteAssetToLibraryItem, type LibraryAsset } from "./studio-library.ts
 export type VoiceEngine = "vevo2" | "yingmusic" | "soulx";
 export type YingMusicParameters = { diffusion_steps: number; inference_cfg_rate: number; seed: number };
 export type YingMusicOutputOptions = { include_stems: boolean; echo: boolean; reverb: boolean };
-export type VoiceTrack = "mix" | "dry_vocal" | "accompaniment";
-export type VoiceOutput = { filename: string; size: number };
-export type VoiceCapability = { id: VoiceEngine; available: boolean; mode: string; reason?: string; tuning?: Record<keyof YingMusicParameters, { default: number; minimum: number; maximum: number }>; outputOptions?: YingMusicOutputOptions };
+export type VoiceTrack = "mix" | "dry_vocal" | "accompaniment" | "remix";
+export type VoiceOutput = { filename: string; size: number; sha256?: string };
+export type VoiceCapability = { transcription?: boolean; rewritePreview?: boolean; id: VoiceEngine; available: boolean; mode: string; reason?: string; tuning?: Record<keyof YingMusicParameters, { default: number; minimum: number; maximum: number }>; outputOptions?: YingMusicOutputOptions };
 export type VoiceTask = {
+  mixParameters?: { vocal_gain_db: number; accompaniment_gain_db: number };
   id: string;
   engine: VoiceEngine;
   sourceAssetId: string;
@@ -24,13 +25,16 @@ export type VoiceTask = {
   parameters?: YingMusicParameters;
   lyrics?: string;
   originalLyrics?: string;
+  detectedLyrics?: string;
+  operation?: "convert" | "transcribe";
+  preview?: boolean;
 };
 
 const ID = /^[0-9a-f]{32}$/;
 const AUDIO_EXTENSION = /\.(wav|flac|ogg|mp3)$/i;
 const ENGINES = new Set<VoiceEngine>(["vevo2", "yingmusic", "soulx"]);
 const STATUSES = new Set<VoiceTask["status"]>(["queued", "running", "cancelling", "completed", "failed", "canceled"]);
-const TRACKS = new Set<VoiceTrack>(["mix", "dry_vocal", "accompaniment"]);
+const TRACKS = new Set<VoiceTrack>(["mix", "dry_vocal", "accompaniment", "remix"]);
 
 export const YINGMUSIC_DEFAULTS: YingMusicParameters = { diffusion_steps: 100, inference_cfg_rate: 0.7, seed: -1 };
 export const YINGMUSIC_OUTPUT_DEFAULTS: YingMusicOutputOptions = { include_stems: false, echo: true, reverb: true };
@@ -81,7 +85,7 @@ export function parseVoiceTask(raw: unknown): VoiceTask | undefined {
     const candidate = rawOutputs?.[track];
     if (candidate && typeof candidate === "object") {
       const item = candidate as Record<string, unknown>;
-      if (typeof item.filename === "string" && typeof item.size === "number" && Number.isFinite(item.size) && item.size > 0) outputs[track] = { filename: item.filename, size: item.size };
+      if (typeof item.filename === "string" && typeof item.size === "number" && Number.isFinite(item.size) && item.size > 0) outputs[track] = { filename: item.filename, size: item.size, ...(typeof item.sha256 === "string" ? { sha256: item.sha256 } : {}) };
     }
   }
   const rawOptions = value.output_options;
@@ -91,6 +95,7 @@ export function parseVoiceTask(raw: unknown): VoiceTask | undefined {
   const parameters = parseParameters(value.parameters, value.engine);
   return {
     id,
+    ...(value.mix_parameters && typeof value.mix_parameters === "object" ? { mixParameters: value.mix_parameters as VoiceTask["mixParameters"] } : {}),
     engine: value.engine as VoiceEngine,
     sourceAssetId: value.source_asset_id,
     referenceAssetId: value.reference_asset_id,
@@ -106,6 +111,9 @@ export function parseVoiceTask(raw: unknown): VoiceTask | undefined {
     ...(error && typeof error.message === "string" ? { error: error.message } : {}),
     ...(parameters ? { parameters } : {}),
     ...(typeof value.lyrics === "string" ? { lyrics: value.lyrics } : {}),
+    operation: value.operation === "transcribe" ? "transcribe" : "convert",
+    preview: value.preview === true,
+    ...(typeof value.detected_lyrics === "string" ? { detectedLyrics: value.detected_lyrics } : {}),
     ...(typeof value.original_lyrics === "string" ? { originalLyrics: value.original_lyrics } : {}),
   };
 }
@@ -130,7 +138,8 @@ export async function getVoiceCapabilities(signal?: AbortSignal): Promise<VoiceC
     }) ? rawTuning as VoiceCapability["tuning"] : undefined;
     let outputOptions: YingMusicOutputOptions | undefined;
     try { outputOptions = validateYingMusicOutputOptions(value.output_options as YingMusicOutputOptions); } catch { /* older server */ }
-    return [{ id: value.id as VoiceEngine, available: value.available === true, mode: typeof value.mode === "string" ? value.mode : "", ...(typeof value.reason === "string" ? { reason: value.reason } : {}), ...(tuning ? { tuning } : {}), ...(outputOptions ? { outputOptions } : {}) }];
+    const lyricCapabilities = value.lyrics as { transcribe?: boolean; preview?: boolean } | undefined;
+    return [{ transcription: lyricCapabilities?.transcribe === true, rewritePreview: lyricCapabilities?.preview === true, id: value.id as VoiceEngine, available: value.available === true, mode: typeof value.mode === "string" ? value.mode : "", ...(typeof value.reason === "string" ? { reason: value.reason } : {}), ...(tuning ? { tuning } : {}), ...(outputOptions ? { outputOptions } : {}) }];
   });
 }
 
@@ -188,13 +197,30 @@ export function validateRewriteParameters(value: YingMusicParameters): YingMusic
   return value;
 }
 
-export async function submitRewriteTask(sourceAssetId: string, referenceAssetId: string, lyrics: string, originalLyrics: string, parameters: YingMusicParameters): Promise<VoiceTask> {
+export async function submitRewriteTask(sourceAssetId: string, referenceAssetId: string, lyrics: string, originalLyrics: string, parameters: YingMusicParameters, preview = false): Promise<VoiceTask> {
   if (!ID.test(sourceAssetId) || !ID.test(referenceAssetId)) throw new Error("请选择原音频与参考音频");
   if (!lyrics.trim() || [...lyrics].length > 10000 || [...originalLyrics].length > 10000 || lyrics.includes("\0") || originalLyrics.includes("\0")) throw new Error("请填写新歌词，歌词最多 10000 字");
   validateRewriteParameters(parameters);
   const body = await request("/api/voice/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ engine: "soulx", source_asset_id: sourceAssetId, reference_asset_id: referenceAssetId, lyrics, original_lyrics: originalLyrics, ...parameters, request_id: crypto.randomUUID().replaceAll("-", "") }) });
+    body: JSON.stringify({ engine: "soulx", source_asset_id: sourceAssetId, reference_asset_id: referenceAssetId, lyrics, original_lyrics: originalLyrics, ...parameters, ...(preview ? { preview: true } : {}), request_id: crypto.randomUUID().replaceAll("-", "") }) });
   const task = parseVoiceTask(body);
   if (!task) throw new Error("服务端未返回有效的换声任务");
+  return task;
+}
+
+export async function transcribeVoiceLyrics(sourceAssetId: string): Promise<VoiceTask> {
+  if (!ID.test(sourceAssetId)) throw new Error("请先选择歌曲");
+  const body = await request("/api/voice/tasks", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ engine: "soulx", operation: "transcribe", source_asset_id: sourceAssetId, request_id: crypto.randomUUID().replaceAll("-", "") }) });
+  const task = parseVoiceTask(body);
+  if (!task) throw new Error("服务端未返回有效的识别任务");
+  return task;
+}
+
+export async function remixVoiceTask(id: string, vocalDb: number, backingDb: number): Promise<VoiceTask> {
+  if (!ID.test(id)) throw new Error("无效的换声任务 ID");
+  const body = await request(`/api/voice/tasks/${id}/remix`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vocal_gain_db: vocalDb, accompaniment_gain_db: backingDb }) });
+  const task = parseVoiceTask(body);
+  if (!task) throw new Error("服务端未返回有效的混音结果");
   return task;
 }

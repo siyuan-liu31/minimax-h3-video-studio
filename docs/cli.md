@@ -622,3 +622,15 @@ Each task uses a disposable private copy. A rejected request may be reported as
 (HTTP 429). These codes do not prove the login expired; check browser playback
 and avoid consecutive retries. Neither site support nor cookie configuration
 guarantees that Douyin will accept a request.
+
+
+### 改词识别、首段试听与混音
+
+```bash
+echo '{"source":"asset:ASSET_ID","wait":true}' | h3ctl operation run voice.transcribe --input -
+h3ctl voice rewrite asset:ASSET_ID --lyrics-file lyrics.txt --preview --to preview.wav
+echo '{"task_id":"TASK_ID","vocal_gain_db":-3,"accompaniment_gain_db":3}' | h3ctl operation run voice.remix --input -
+h3ctl voice download TASK_ID --track remix --to remix.wav
+```
+
+将占位符替换为实际 32 位资产/任务 ID。识别结果为 completed 回执中的 `detected_lyrics`；混音只消耗 CPU，要求原任务保留干声和伴奏，不改变原始生成混音。

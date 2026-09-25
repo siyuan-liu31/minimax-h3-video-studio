@@ -19,12 +19,12 @@ import (
 const VoiceHelp = `Usage: h3ctl voice COMMAND
 
   convert SOURCE --reference AUDIO --engine vevo2|yingmusic [--steps 100] [--cfg 0.7] [--seed -1] [--keep-stems] [--echo=false] [--reverb=false] [--detach] [--to PATH]
-  rewrite SOURCE --lyrics-file FILE [--original-lyrics-file FILE] [--reference AUDIO] [--steps 32] [--cfg 3] [--seed -1] [--detach] [--to PATH]
+  rewrite SOURCE --lyrics-file FILE [--original-lyrics-file FILE] [--reference AUDIO] [--preview] [--steps 32] [--cfg 3] [--seed -1] [--detach] [--to PATH]
   status TASK
   wait TASK [--timeout DURATION] [--poll-interval DURATION]
   cancel TASK
   delete TASK
-  download TASK --to PATH [--track mix|dry_vocal|accompaniment] [--force]
+  download TASK --to PATH [--track mix|dry_vocal|accompaniment|remix] [--force]
   capabilities
 
 vevo2 uses the reviewed FM-only style-preserved VC/SVC path.
@@ -163,7 +163,7 @@ func (r *Runner) runVoice(ctx context.Context, args []string) (any, error) {
 		track := set.String("track", "mix", "")
 		force := set.Bool("force", false, "")
 		if err := parseFlags(set, args[1:]); err != nil || set.NArg() != 1 || *to == "" || !validVoiceTrack(*track) {
-			return nil, usage("voice download requires TASK --to PATH and --track mix|dry_vocal|accompaniment")
+			return nil, usage("voice download requires TASK --to PATH and --track mix|dry_vocal|accompaniment|remix")
 		}
 		id, err := voiceTaskID(set.Arg(0))
 		if err != nil {
@@ -188,7 +188,7 @@ func voiceTaskID(raw string) (string, error) {
 }
 
 func validVoiceTrack(track string) bool {
-	return track == "mix" || track == "dry_vocal" || track == "accompaniment"
+	return track == "mix" || track == "dry_vocal" || track == "accompaniment" || track == "remix"
 }
 
 func voiceDownloadPath(taskID, track string) string {
@@ -202,6 +202,7 @@ func voiceDownloadPath(taskID, track string) string {
 // runVoiceRewrite keeps the CLI file handling separate from the reusable API operation.
 func (r *Runner) runVoiceRewrite(ctx context.Context, args []string) (any, error) {
 	set := newFlags("voice rewrite")
+	preview := set.Bool("preview", false, "generate first segment only")
 	lyricsFile := set.String("lyrics-file", "", "UTF-8 lyrics file")
 	originalFile := set.String("original-lyrics-file", "", "optional original lyrics")
 	reference := set.String("reference", "", "defaults to source")
@@ -245,7 +246,7 @@ func (r *Runner) runVoiceRewrite(ctx context.Context, args []string) (any, error
 	if ref == "" {
 		ref = set.Arg(0)
 	}
-	input := map[string]any{"source": set.Arg(0), "reference": ref, "lyrics": lyrics, "original_lyrics": original, "diffusion_steps": float64(*steps), "inference_cfg_rate": *cfg, "seed": float64(*seed)}
+	input := map[string]any{"preview": *preview, "source": set.Arg(0), "reference": ref, "lyrics": lyrics, "original_lyrics": original, "diffusion_steps": float64(*steps), "inference_cfg_rate": *cfg, "seed": float64(*seed)}
 	submitted, err := r.Service.SubmitRewrite(ctx, input, r.Globals.RequestID)
 	if err != nil {
 		return nil, err

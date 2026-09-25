@@ -34,7 +34,7 @@ test("voice task receipts accept only safe IDs, engines and statuses", () => {
   assert.deepEqual(parseVoiceTask(task), {
     id: taskId, engine: "yingmusic", sourceAssetId: sourceId, referenceAssetId: referenceId,
     status: "queued", stage: "waiting_for_gpu", progress: 0, createdAt: 100,
-    queuePosition: 2, queueReason: "waiting_for_video_task",
+    queuePosition: 2, queueReason: "waiting_for_video_task", operation: "convert", preview: false,
   });
 });
 
@@ -124,9 +124,10 @@ test("voice drawer is wired to upload/drop, persisted task polling, cancellation
   assert.match(drawer, /submitVoiceTask\(engine, sourceId, referenceId, currentParameters\(\),/);
   assert.match(drawer, /cancelVoiceTask\(task\.id\)/);
   assert.match(drawer, /deleteVoiceTask\(task\.id\)/);
-  assert.match(drawer, /audio key=\{`\$\{task\.id\}:\$\{selected\}`\} controls preload="none" src=\{voicePreviewUrl\(task\.id, selected\)\}/);
-  assert.match(drawer, /href=\{voiceDownloadUrl\(task\.id, selected\)\}/);
-  assert.match(drawer, /download=\{`voice-/);
+  const result = await readFile(new URL("../app/voice-task-result.tsx", import.meta.url), "utf8");
+  assert.match(result, /ref=\{result\} controls preload="none" src=\{preview\}/);
+  assert.match(result, /href=\{voiceDownloadUrl\(task\.id, selected\)\}/);
+  assert.match(result, /download=\{`voice-/);
   assert.equal(translateUiText("换声", "en"), "Voice Conversion");
   assert.equal(translateUiText("开始换声", "en"), "Convert Voice");
   assert.equal(translateUiText("种子", "en"), "Seed");

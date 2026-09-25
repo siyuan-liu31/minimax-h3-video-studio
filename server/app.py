@@ -1616,6 +1616,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._read_json()
                 self._json(HTTPStatus.ACCEPTED, self.runtime.media_tasks.cancel(segments[2]))
                 return
+            if len(segments) == 5 and segments[:3] == ["api", "voice", "tasks"] and segments[4] == "remix":
+                self._json(HTTPStatus.OK, self.runtime.voice.remix(segments[3], self._read_json()))
+                return
             if len(segments) == 5 and segments[:3] == ["api", "voice", "tasks"] and segments[4] == "cancel":
                 if self.headers.get("Content-Length", "0") != "0":
                     self._read_json()

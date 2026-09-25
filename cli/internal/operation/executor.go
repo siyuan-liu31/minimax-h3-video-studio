@@ -177,12 +177,14 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 		return jsonActionWithID(ctx, s, http.MethodPost, "/api/derivations/"+url.PathEscape(require("media_id"))+"/assets", body, "asset_id", "id")
 	case "media.delete":
 		return jsonAction(ctx, s, http.MethodDelete, "/api/derivations/"+url.PathEscape(require("media_id")), nil)
-	case "voice.rewrite", "voice.convert":
+	case "voice.rewrite", "voice.convert", "voice.transcribe":
 		tuning := map[string]any{}
 		copyOptional(tuning, input, "diffusion_steps", "inference_cfg_rate", "seed", "output_options")
 		var submitted map[string]any
 		var err error
-		if name == "voice.rewrite" {
+		if name == "voice.transcribe" {
+			submitted, err = s.SubmitVoice(ctx, "soulx", require("source"), require("source"), stringValue(input["request_id"], ""), map[string]any{"operation": "transcribe"})
+		} else if name == "voice.rewrite" {
 			submitted, err = s.SubmitRewrite(ctx, input, stringValue(input["request_id"], ""))
 		} else {
 			submitted, err = s.SubmitVoice(ctx, require("engine"), require("source"), require("reference"), stringValue(input["request_id"], ""), tuning)
@@ -208,6 +210,10 @@ func Execute(ctx context.Context, runtime Runtime, name string, input map[string
 			result["download"] = downloaded
 		}
 		return result, nil
+	case "voice.remix":
+		body := map[string]any{}
+		copyOptional(body, input, "vocal_gain_db", "accompaniment_gain_db")
+		return jsonAction(ctx, s, http.MethodPost, "/api/voice/tasks/"+url.PathEscape(require("task_id"))+"/remix", body)
 	case "voice.get":
 		return s.API.Get(ctx, "/api/voice/tasks/"+url.PathEscape(require("task_id")))
 	case "voice.wait":

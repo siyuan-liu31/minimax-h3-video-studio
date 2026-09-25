@@ -70,6 +70,9 @@ class SoulXEngine:
                 source_meta, detected = self.core._preprocess_audio_to_metadata(
                     str(source), language="Mandarin", max_merge_duration=30000,
                     reference_lyrics=request.get("original_lyrics") or None)
+                if request.get("operation") == "transcribe":
+                    output.write_text(json.dumps({"lyrics": detected}, ensure_ascii=False), encoding="utf-8")
+                    return output
                 source_stems = dict(captured)
                 if request["source"] == request["reference"]:
                     prompt_meta = source_meta
@@ -107,7 +110,11 @@ class SoulXEngine:
             torch.cuda.empty_cache()
             params = request["parameters"]
             rate = 24000
-            full = np.zeros(round(source_info.duration * rate), dtype=np.float32)
+            duration = source_info.duration
+            if request.get("preview"):
+                duration = min(duration, source_meta[0]["time"][1] / 1000)
+                source_meta, tracks = source_meta[:1], tracks[:1]
+            full = np.zeros(round(duration * rate), dtype=np.float32)
             for original, track in zip(source_meta, tracks):
                 rendered, actual_rate = self.core.synthesize_audio(
                     json.dumps([track], ensure_ascii=False), str(reference), prompt_metadata=prompt_meta,
@@ -120,8 +127,15 @@ class SoulXEngine:
                 rendered = rendered.reshape(-1)
                 count = min(max(0, end - start), len(rendered))
                 full[start:start+count] = rendered[:count]
+            # Match the original dry vocal RMS before adding the untouched backing.
+            # Cap correction at 12 dB to avoid amplifying near-silence/separation residue.
+            original_vocal = source_stems["vocal"][:round(duration * source_stems["sample_rate"])]
+            original_rms = float(np.sqrt(np.mean(np.square(original_vocal, dtype=np.float64))))
+            generated_rms = float(np.sqrt(np.mean(np.square(full, dtype=np.float64))))
+            if original_rms > 1e-4 and generated_rms > 1e-4:
+                full *= np.clip(original_rms / generated_rms, 0.25, 4.0)
             sf.write(output.parent / "dry-vocal.wav", full, rate, subtype="FLOAT")
-            sf.write(output.parent / "accompaniment.wav", source_stems["accompaniment"], source_stems["sample_rate"], subtype="FLOAT")
+            sf.write(output.parent / "accompaniment.wav", source_stems["accompaniment"][:round(duration * source_stems["sample_rate"])], source_stems["sample_rate"], subtype="FLOAT")
             subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(output.parent / "dry-vocal.wav"), "-i", str(output.parent / "accompaniment.wav"), "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=longest:normalize=0", "-ar", str(source_stems["sample_rate"]), "-ac", "2", "-c:a", "pcm_f32le", str(output)], check=True, timeout=300)
             mixed, mix_rate = sf.read(output, dtype="float32", always_2d=True)
             peak = float(np.max(np.abs(mixed)))

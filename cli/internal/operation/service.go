@@ -308,7 +308,7 @@ func (s *Service) SubmitVoice(ctx context.Context, engine, source, reference, re
 	if len(tuning) == 1 {
 		for key, value := range tuning[0] {
 			switch key {
-			case "diffusion_steps", "inference_cfg_rate", "seed", "output_options", "lyrics", "original_lyrics":
+			case "diffusion_steps", "inference_cfg_rate", "seed", "output_options", "lyrics", "original_lyrics", "preview", "operation":
 				body[key] = value
 			default:
 				return nil, contract.NewError("invalid_argument", "unsupported voice tuning parameter")
@@ -1089,6 +1089,7 @@ func (s *Service) SubmitRewrite(ctx context.Context, input map[string]any, reque
 		return nil, contract.NewError("invalid_argument", "lyrics must be UTF-8, nonempty and at most 10000 characters")
 	}
 	tuning := map[string]any{"lyrics": lyrics, "original_lyrics": original}
+	copyOptional(tuning, input, "preview")
 	for key, limits := range map[string][3]float64{"diffusion_steps": {32, 16, 100}, "inference_cfg_rate": {3, 0, 10}, "seed": {-1, -1, 4294967295}} {
 		value := limits[0]
 		if raw, exists := input[key]; exists {

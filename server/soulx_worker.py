@@ -136,7 +136,7 @@ class SoulXEngine:
                 full *= np.clip(original_rms / generated_rms, 0.25, 4.0)
             sf.write(output.parent / "dry-vocal.wav", full, rate, subtype="FLOAT")
             sf.write(output.parent / "accompaniment.wav", source_stems["accompaniment"][:round(duration * source_stems["sample_rate"])], source_stems["sample_rate"], subtype="FLOAT")
-            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(output.parent / "dry-vocal.wav"), "-i", str(output.parent / "accompaniment.wav"), "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=longest:normalize=0", "-ar", str(source_stems["sample_rate"]), "-ac", "2", "-c:a", "pcm_f32le", str(output)], check=True, timeout=300)
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(output.parent / "dry-vocal.wav"), "-i", str(output.parent / "accompaniment.wav"), "-filter_complex", "[0:a]aformat=channel_layouts=stereo[v];[1:a]aformat=channel_layouts=stereo[b];[v][b]amix=inputs=2:duration=longest:normalize=0", "-ar", str(source_stems["sample_rate"]), "-ac", "2", "-c:a", "pcm_f32le", str(output)], check=True, timeout=300)
             mixed, mix_rate = sf.read(output, dtype="float32", always_2d=True)
             peak = float(np.max(np.abs(mixed)))
             if not np.isfinite(mixed).all():

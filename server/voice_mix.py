@@ -1,6 +1,7 @@
 """CPU-only, peak-safe remixing of retained voice stems; originals stay intact."""
 from __future__ import annotations
 
+import json
 import math
 import re
 import subprocess
@@ -29,21 +30,27 @@ def remix_audio(vocal: Path, backing: Path, output: Path, parameters: dict) -> N
         return subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-y", *args],
                               capture_output=True, text=True, timeout=180, check=True)
     try:
+        probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
+                                "stream=sample_rate", "-of", "json", str(backing)],
+                               capture_output=True, text=True, timeout=30, check=True)
+        rate = int(json.loads(probe.stdout)["streams"][0]["sample_rate"])
+        if not 8000 <= rate <= 384000:
+            raise ValueError("Invalid backing sample rate")
         with tempfile.TemporaryDirectory(prefix=".remix-", dir=output.parent) as directory:
             raw, final = Path(directory) / "float.wav", Path(directory) / "final.wav"
-            graph = (f"[0:a]volume={parameters['vocal_gain_db']}dB[v];"
-                     f"[1:a]volume={parameters['accompaniment_gain_db']}dB[b];"
+            graph = (f"[0:a]volume={parameters['vocal_gain_db']}dB,aresample={rate},aformat=channel_layouts=stereo[v];"
+                     f"[1:a]volume={parameters['accompaniment_gain_db']}dB,aresample={rate},aformat=channel_layouts=stereo[b];"
                      "[v][b]amix=inputs=2:duration=longest:normalize=0[out]")
             run(["-i", str(vocal), "-i", str(backing), "-filter_complex", graph,
                  "-map", "[out]", "-c:a", "pcm_f32le", str(raw)])
             # astats reads float samples without clipping at 0 dB as volumedetect does.
             stats = run(["-i", str(raw), "-af", "astats=metadata=0:reset=0", "-f", "null", "-"])
-            peaks = re.findall(r"Peak level dB:\s*([-+\d.e]+|[-+]inf)", stats.stderr)
+            peaks = re.findall(r"Peak level dB:\s*([-+]?inf|[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)", stats.stderr)
             if not peaks:
                 raise ValueError("Missing audio peak measurement")
             peak = max(float(value) for value in peaks)
             attenuation = min(0.0, -0.2 - peak)
             run(["-i", str(raw), "-af", f"volume={attenuation}dB", "-c:a", "pcm_s16le", str(final)])
             final.replace(output)
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, KeyError, IndexError, subprocess.SubprocessError) as exc:
         raise ApiError(500, "voice_remix_failed", "混音失败，请确认音轨完整后重试") from exc

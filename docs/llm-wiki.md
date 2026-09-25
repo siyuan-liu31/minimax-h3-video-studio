@@ -590,5 +590,5 @@ GPU 租约终态、Comfy prompt 生命期、资产删除引用、API/CLI operati
 - `app/lyrics-draft.ts` 管理按 source ID 保存的最近 20 首草稿。识别完成只填充未编辑字段；历史识别回执以 task ID 去重。`app/voice-task-result.tsx` 提供原曲/结果独占播放和同位置切换。
 - `POST /api/voice/tasks` 的 SoulX 专属 `operation:"transcribe"` 只识别原词，不要求新词，复用 GPU 租约、取消及持久历史；完成回执含 `detected_lyrics`，没有 audio output。`preview:true` 仍对全词对齐，但只合成第一预处理段（保留源起点），回执标记试听。
 - SoulX 合成的人声在混音前按原唱去混响人声 RMS 校准，增益限制 0.25–4 倍；伴奏原样保留。分离残留和模型演唱质量仍受源素材影响。
-- `POST /api/voice/tasks/:id/remix` 接受 `vocal_gain_db`、`accompaniment_gain_db`（有限数值 −18…12，默认 0）。仅对已完成且保留双分轨的任务可用，CPU ffmpeg 混音，浮点峰值测量后只在需要时整体衰减至 −0.2 dB，原子更新 `remix.wav`。原始 mix/干声/伴奏不覆盖；回执增加 `outputs.remix` 与 `mix_parameters`。preview/download 的 track 新增 remix；浏览器按输出 SHA 刷新缓存。混音与删除互斥。
+- `POST /api/voice/tasks/:id/remix` 接受 `vocal_gain_db`、`accompaniment_gain_db`（有限数值 −18…12，默认 0）。仅对已完成且保留双分轨的任务可用，CPU ffmpeg 混音（按伴奏采样率及立体声处理），浮点峰值测量后只在需要时整体衰减至 −0.2 dB，原子更新 `remix.wav`。原始 mix/干声/伴奏不覆盖；回执增加 `outputs.remix` 与 `mix_parameters`。preview/download 的 track 新增 remix；浏览器按输出 SHA 刷新缓存。混音与删除互斥。
 - `server/voice_mix.py` 负责不依赖模型的混音。CLI Agent operations 新增 `voice.transcribe`（source / 可选 wait）和 `voice.remix`；`voice.rewrite --preview` 只试听首段。词数差异提示仅供编辑参考，不保证逐句完美对齐。

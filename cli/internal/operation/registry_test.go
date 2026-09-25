@@ -314,8 +314,17 @@ func TestEveryPublishedOperationExecutesAndRejectsUnknownInput(t *testing.T) {
 		{"video.replication.resume", fmt.Sprintf(`{"project_id":%q,"to":%q}`, idD, filepath.Join(temp, "resumed.mp4")), "GET", "/api/video-projects/" + idD + "/merged/download", "", nil, 2},
 		{"video.replication.produce", fmt.Sprintf(`{"version":"h3.replication/v1","source":"asset:%s","brief":"replace the product","to":%q,"poll_seconds":0.001}`, idA, filepath.Join(temp, "replication.mp4")), "GET", "/api/video-projects/" + idD + "/merged/download", "", nil, 7},
 	}
-	if len(tests) != len(Definitions()) {
-		t.Fatalf("execution matrix has %d cases for %d definitions", len(tests), len(Definitions()))
+	covered := map[string]bool{}
+	for _, test := range tests {
+		covered[test.name] = true
+	}
+	for _, definition := range Definitions() {
+		if !covered[definition.Name] {
+			t.Fatalf("missing execution case for %s", definition.Name)
+		}
+	}
+	if len(covered) != len(Definitions()) {
+		t.Fatal("execution matrix contains unknown operations")
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

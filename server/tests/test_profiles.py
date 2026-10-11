@@ -41,7 +41,7 @@ class ProfileRegistryTests(unittest.TestCase):
             ({"type": "video", "prompt": "x"}, "minimax-h3-fl2va"),
             ({"type": "video", "prompt": "x", "assets": [{"id": "c" * 32}]}, "minimax-h3-ref2va"),
             ({"type": "image", "prompt": "x"}, "z-image-turbo-bf16-t2i"),
-            ({"type": "image", "prompt": "x", "assets": [{"id": "a" * 32}]}, "qwen-image-edit-2511-int8"),
+            ({"type": "image", "prompt": "x", "assets": [{"id": "a" * 32}]}, "qwen-image-2.1-bf16"),
         ]
         for request, expected in cases:
             with self.subTest(expected=expected):
@@ -50,6 +50,16 @@ class ProfileRegistryTests(unittest.TestCase):
     def test_unknown_profile_is_rejected(self) -> None:
         with self.assertRaisesRegex(ApiError, "unknown workflow profile"):
             parse_generation_request({"type": "image", "prompt": "x", "profile_id": "missing"}, lookup)
+
+    def test_removed_models_are_absent_from_current_choices_but_history_resolves(self) -> None:
+        retired = {
+            "z-image-turbo-int8-t2i", "z-image-turbo-int8-img2img",
+            "qwen-image-2512-fp8-t2i", "qwen-image-edit-2511-int8",
+            "flux2-klein-4b-fp8",
+        }
+        self.assertTrue(retired.isdisjoint({profile.id for profile in DEFAULT_REGISTRY.all()}))
+        for identifier in retired:
+            self.assertEqual(DEFAULT_REGISTRY.get(identifier).id, identifier)
 
     def test_external_manifest_may_only_use_reviewed_compiler(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

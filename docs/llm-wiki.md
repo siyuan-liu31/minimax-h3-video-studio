@@ -1,6 +1,6 @@
 # MiniMax H3 Video Studio LLM Wiki
 
-> 最后校准：2026-09-25（Asia/Shanghai，复核抖音本机/开发机失败回执、前端失败反馈和当前 16020 部署；此前 2026-09-24 校准的复刻容量及 GPU 链路仍以对应源码和测试为准）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
+> 最后校准：2026-10-11（Asia/Shanghai，复核 Profile 注册表、ComfyUI 能力探测、工作流默认路由及开发机运行状态：开发机暂无 GPU，H3 服务可启动，ComfyUI 离线）。面向后续开发 Agent 的代码地图；具体发布版本以 Git 和开发机 `current` 软链接为准。实现事实优先级：源码与测试 > capability/API 回执 > 本文 > 历史 evidence 文档。
 
 ## 1. 先看这里
 
@@ -14,7 +14,7 @@ Browser :3013
     ├─ 页面 -> Vinext :3014
     └─ /api/* -> Python API :6020
                        └─ GPU Resource Manager (single-card FIFO lease)
-                          ├─ ComfyUI :6009（本次 Qwen-Image 2.1 部署目标；旧 :6006 在切换前保持运行）
+                          ├─ ComfyUI :6009（配置目标；2026-10-11 无 GPU，服务未运行）
                           └─ Vevo2 / YingMusic persistent worker
 ```
 
@@ -285,11 +285,13 @@ PromptMentionComposer
 
 - H3 FL2VA / Ref2VA：Turbo LoRA 与 Base
 - Z-Image Turbo：T2I、latent img2img、社区 LoRA 变体
-- Qwen-Image 2512 T2I、Qwen-Image Edit 2511、Qwen-Image 2.1 BF16 统一 T2I / 1–10 图编辑
-- FLUX.2 Klein 4B/9B
+- Qwen-Image 2.1 BF16 统一 T2I / 1–10 图编辑
+- FLUX.2 Klein 9B
 - Anything V5 回退
 
 外部 Profile 位于 `$H3_STUDIO_DATA_ROOT/profiles/*.json`，只能选择代码已经审核的 compiler。`server/comfy.py::capabilities` 结合 `/object_info`、模型选择项和 Profile 声明计算 `available`；前端只消费 capability，不自行推测文件是否存在。
+
+2026-10-11 数据盘移除 Z-Image Turbo INT8、Qwen-Image 2512 FP8、Qwen-Image Edit 2511 INT8、FLUX.2 Klein 4B FP8 及仅供其使用的 FP8 文本编码器。对应五个内置 Profile 从 `ProfileRegistry.all()` 当前能力列表中撤下；`get()` 仍可解析旧任务的 Profile 身份，实际运行会因不在 capability 中而被阻止。图生图 `auto` 改为 `qwen-image-2.1-bf16`，文生图 `auto` 保持 Z-Image Turbo BF16。ComfyUI 离线时 `/api/capabilities` 返回 200、全部生成 Profile 为不可用，`/health` 保持 503 降级回执；无 GPU 时只能验证服务、API 和 CPU 合同，不能证明实际生成。
 
 `qwen-image-2.1-bf16` 使用受控 compiler `qwen_image_21`，固定绑定完整 BF16 的 diffusion model、Qwen3-VL 8B text encoder 与 VAE，不做隐式量化。能力探测要求新版 ComfyUI 的 `TextEncodeQwenImage21` 和 `QwenImage21Cache` 节点、对应接口以及三份精确权重；旧 ComfyUI 应将 Profile 标为不可用，而不是改用旧版 Qwen 模型。无图时使用 `EmptyLatentImage` 文生图；有图时按 `reference_index` 生成 `images.image_N` Autogrow 输入，首图通过 `ImageScale` 确定编辑尺寸，附加参考图缩至 1MP，文本提示中的“图N / image N / <imageN>”统一为 `<imageN>`。输出尺寸使用独立的原生 2K preset，参数默认 40 步、CFG 1、`euler/simple`，不对外接受或回显 `denoise`。其权重为 Qwen Research License，非商业研究/评估以外用途须单独授权；不得混同旧 Qwen-Image 的 Apache-2.0 许可。
 
@@ -532,7 +534,7 @@ npm test
 - Python API：6020
 - Vinext 内部服务：3014
 - 对浏览器的同源 gateway：3013
-- ComfyUI：切换后使用独立升级的 0.37 服务 `:6009`，复用原模型/input/output 持久目录；旧 `:6006` 保留到切换和回归验收结束，不要在发布前停止。
+- ComfyUI：配置目标为独立的 `:6009` 服务，复用数据盘模型/input/output 持久目录；2026-10-11 无 GPU、未启动 ComfyUI。
 - Vevo2/YingMusic：由 Python API 按需启动的子进程，无监听端口
 
 安全发布顺序：

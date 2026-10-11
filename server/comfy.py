@@ -393,7 +393,17 @@ class ComfyClient:
         return result
 
     def capabilities(self, config: Config, registry: ProfileRegistry = DEFAULT_REGISTRY) -> dict[str, Any]:
-        info = self.object_info()
+        try:
+            info = self.object_info()
+            comfyui = {"available": True}
+        except ApiError as error:
+            if error.code != "comfy_unreachable":
+                raise
+            # The studio can still show existing projects and voice features
+            # while a GPU machine or ComfyUI is offline. Never mark a graph
+            # available without its live node and model inventory.
+            info = {}
+            comfyui = {"available": False, "reason": error.code}
         profile_values = [self._profile_capability(profile, info, config) for profile in registry.all()]
         video_nodes = {
             "UNETLoader",
@@ -489,6 +499,7 @@ class ComfyClient:
             },
         }
         return {
+            "comfyui": comfyui,
             "profiles": profile_values,
             "video": {
                 "available": fl_available or ref_available,

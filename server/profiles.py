@@ -716,6 +716,17 @@ BUILTIN_PROFILES = (
     ),
 )
 
+# Keep these definitions for reading historical jobs and their profile digests.
+# Their weights were removed from the development machine, so they must not be
+# advertised as current generation choices.
+RETIRED_BUILTIN_PROFILE_IDS = frozenset({
+    "z-image-turbo-int8-t2i",
+    "z-image-turbo-int8-img2img",
+    "qwen-image-2512-fp8-t2i",
+    "qwen-image-edit-2511-int8",
+    "flux2-klein-4b-fp8",
+})
+
 
 def _validate_manifest(value: Any, source: str) -> WorkflowProfile:
     if not isinstance(value, dict):
@@ -887,7 +898,7 @@ class ProfileRegistry:
             raise ApiError(400, "unknown_profile", f"unknown workflow profile {profile_id!r}") from error
 
     def all(self) -> tuple[WorkflowProfile, ...]:
-        return tuple(self._profiles.values())
+        return tuple(profile for profile in self._profiles.values() if profile.id not in RETIRED_BUILTIN_PROFILE_IDS)
 
     def choose(self, output_type: str, mode: str, references: Iterable[Any], requested: str = "auto") -> WorkflowProfile:
         refs = tuple(references)
@@ -897,7 +908,7 @@ class ProfileRegistry:
                 raise ApiError(400, "profile_mismatch", "profile output type does not match the request")
         else:
             if output_type == "image":
-                identifier = "qwen-image-edit-2511-int8" if refs else "z-image-turbo-bf16-t2i"
+                identifier = "qwen-image-2.1-bf16" if refs else "z-image-turbo-bf16-t2i"
             else:
                 identifier = "minimax-h3-ref2va" if mode == "ref2va" else "minimax-h3-fl2va"
             profile = self.get(identifier)

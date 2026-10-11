@@ -551,12 +551,11 @@ class RequestTests(unittest.TestCase):
 
     def test_single_image_reference_routes_to_image_to_image(self) -> None:
         spec = parse_generation_request(
-            {"type": "image", "prompt": "portrait", "parameters": {"denoise": 0.4}, "assets": [{"id": "a" * 32}]},
+            {"type": "image", "prompt": "portrait", "assets": [{"id": "a" * 32}]},
             lookup,
         )
         self.assertEqual(spec.mode, "image-to-image")
-        self.assertEqual(spec.profile_id, "qwen-image-edit-2511-int8")
-        self.assertEqual(spec.denoise, 0.4)
+        self.assertEqual(spec.profile_id, "qwen-image-2.1-bf16")
 
     def test_image_node_positive_prompt_graph_is_accepted_without_h3_prompt_edge(self) -> None:
         spec = parse_generation_request({
@@ -1393,9 +1392,12 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("Ultra HD, 4K, cinematic composition", spec.prompt)
 
     def test_qwen_2511_edit_conditions_on_source_image_and_denoise(self) -> None:
+        profile = DEFAULT_REGISTRY.get("qwen-image-edit-2511-int8")
         spec = parse_generation_request({
             "type": "image", "prompt": "保留人物，把背景改成雨夜霓虹街道",
             "parameters": {"denoise": 0.7}, "assets": [{"id": "a" * 32}],
+            "profile_id": profile.id, "profile_version": profile.version,
+            "profile_digest": profile.digest(),
         }, lookup)
         workflow = compile_workflow(spec, self.config, "9" * 32)
         self.assertEqual(spec.profile_id, "qwen-image-edit-2511-int8")

@@ -10,24 +10,22 @@ disabled rather than silently falling back to a different graph.
 | --- | --- | --- | --- |
 | `z-image-turbo-bf16-t2i` | Text to image | 8 steps, CFG 1, `res_multistep/simple` | Default high-quality photorealism and Chinese/English text |
 | `z-image-turbo-bf16-img2img` | One-image latent img2img, no LoRA | 8 steps, CFG 1, adjustable denoise | Default high-quality experimental redraw; not Z-Image Edit |
-| `z-image-turbo-int8-t2i` | Text to image | 8 steps, CFG 1, `res_multistep/simple` | Low-memory/high-concurrency fallback |
-| `z-image-turbo-int8-img2img` | One-image latent img2img, no LoRA | 8 steps, CFG 1, adjustable denoise | Low-memory/high-concurrency experimental redraw |
 | `z-image-turbo-zit-nsfw-t2i` | Text to image + reviewed community LoRA | 8 steps, CFG 1, adjustable LoRA strength | Lawful consenting-adult generation; restricted community license |
 | `z-image-turbo-zit-nsfw-img2img` | One-image latent img2img + reviewed community LoRA | 8 steps, CFG 1, adjustable LoRA strength and denoise | Experimental latent redraw; not official Z-Image Edit |
-| `qwen-image-2512-fp8-t2i` | Text to image | 50 steps, CFG 4, `euler/simple` | Higher-quality people, natural detail and graphic layouts |
-| `qwen-image-edit-2511-int8` | One-image instruction edit | 40 steps, CFG 3, `euler/simple`, denoise 1 | Identity-preserving edits, material/background/text changes |
 | `qwen-image-2.1-bf16` | Text to image or 1–10 ordered image edits | 40 steps, CFG 1, `euler/simple` | Native 2K generation and instruction editing with full BF16 weights |
-| `flux2-klein-4b-fp8` | Text or 1–4 ordered images | 4 steps, CFG 1, `euler/flux2` | Fast multi-reference editing; Apache-2.0 |
 | `flux2-klein-9b-fp8` | Text or 1–4 ordered images | 4 steps, CFG 1, `euler/flux2` | Gated higher-capacity model; non-commercial only |
 | `anything-v5-*` | Legacy text/image to image | 24 steps | Compatibility fallback only |
 
 The Z-Image Turbo text-to-image graph follows the current official ComfyUI
-template. Both Z-Image latent img2img profiles are reviewed experimental adapters:
-they VAE-encode one source image and are not official Z-Image Edit workflows.
+template. The BF16 Z-Image latent img2img profile is a reviewed experimental adapter:
+it VAE-encodes one source image and is not an official Z-Image Edit workflow.
 Z-Image Turbo uses a zeroed negative condition, so its UI intentionally hides
-Negative Prompt. Qwen-Image 2512 receives the official language-aware quality
-suffix in the server-compiled prompt, which remains visible in the final prompt
-preview.
+Negative Prompt. With an image reference, automatic selection now uses
+`qwen-image-2.1-bf16` and its native ordered-reference edit graph.
+
+The deleted Z-Image INT8, Qwen-Image 2512/Edit 2511 and FLUX.2 Klein 4B
+weights have retired profiles: their definitions remain for historical job
+identity, but current capability responses do not offer them.
 
 ## Model files
 
@@ -35,15 +33,9 @@ preview.
 ComfyUI/models/
 ├── diffusion_models/
 │   ├── z_image_turbo_bf16.safetensors
-│   ├── z_image_turbo_int8_convrot.safetensors
-│   ├── qwen_image_2512_fp8_e4m3fn.safetensors
-│   ├── qwen_image_edit_2511_int8_convrot.safetensors
 │   ├── qwen_image_2.1_bf16.safetensors
-│   ├── flux-2-klein-4b-fp8.safetensors
 │   └── flux-2-klein-9b-fp8.safetensors
 ├── text_encoders/
-│   ├── qwen_3_4b_fp8_mixed.safetensors
-│   ├── qwen_2.5_vl_7b_fp8_scaled.safetensors
 │   ├── qwen_3_4b.safetensors
 │   ├── qwen3vl_8b_bf16.safetensors
 │   └── qwen_3_8b_fp8mixed.safetensors
@@ -120,11 +112,9 @@ pixel budget. The profile is not selected as an unavailable fallback.
 
 ## Original Z-Image Turbo latent img2img
 
-`z-image-turbo-bf16-img2img` is the default original-Turbo latent profile. It
+`z-image-turbo-bf16-img2img` is the retained original-Turbo latent profile. It
 uses the official BF16 diffusion model and the complete `qwen_3_4b.safetensors`
-encoder without loading the community LoRA. The INT8 profile remains available
-only as a lower-memory/high-concurrency fallback. Both accept exactly one image
-and run:
+encoder without loading the community LoRA. It accepts exactly one image and runs:
 
 ```text
 LoadImage -> ImageScale -> VAEEncode -> KSampler(denoise < 1)
@@ -141,9 +131,9 @@ Z-Image-Edit and Z-Image-Omni-Base **To be released**, with no reviewed
 checkpoint binding or official ComfyUI graph. MiniMax H3 Video Studio will not substitute the
 Turbo latent workflow and claim it is Z-Image-Edit.
 
-FLUX.2 Klein 4B is Apache-2.0. FLUX.2 Klein 9B is gated and licensed only for
-non-commercial use; accepting access on Hugging Face does not turn it into a
-commercial license. Both remain subject to their model usage policy. MiniMax H3 Video Studio
+FLUX.2 Klein 9B is gated and licensed only for non-commercial use;
+accepting access on Hugging Face does not turn it into a commercial license.
+MiniMax H3 Video Studio
 does not advertise a safety-filter bypass.
 
 ## Z-Image Turbo + ZIT NSFW LoRA
@@ -193,7 +183,7 @@ and use image 4 only for lighting and visual style.
 
 Klein multi-reference is conditioning, not traditional latent img2img. There is
 no denoise/reference-strength control and no Negative Prompt in this profile;
-the distilled 4B and 9B profiles use fixed 4 steps and CFG 1. Reference order
+the retained 9B profile uses fixed 4 steps and CFG 1. Reference order
 and explicit natural-language relationships are the controls that matter.
 
 ## Extension contract

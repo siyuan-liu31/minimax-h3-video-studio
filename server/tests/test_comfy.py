@@ -222,6 +222,18 @@ def z_image_lora_object_info(*, installed: bool, complete_schema: bool = True):
 
 
 class CapabilityTests(unittest.TestCase):
+    def test_capabilities_remain_readable_when_comfyui_is_offline(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            client = ComfyClient("http://unused")
+            with patch.object(client, "object_info", side_effect=ApiError(502, "comfy_unreachable", "offline")):
+                value = client.capabilities(config(Path(directory)))
+            self.assertEqual(value["comfyui"], {"available": False, "reason": "comfy_unreachable"})
+            self.assertFalse(value["video"]["available"])
+            self.assertFalse(value["image"]["available"])
+            self.assertTrue(value["profiles"])
+            self.assertTrue(all(not profile["available"] for profile in value["profiles"]))
+            self.assertNotIn("qwen-image-edit-2511-int8", {p["id"] for p in value["profiles"]})
+
     def test_execution_environment_detects_blackwell_from_current_comfy_device_name(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             client = ComfyClient("http://unused")
@@ -237,10 +249,9 @@ class CapabilityTests(unittest.TestCase):
             with patch.object(client, "object_info", return_value=info):
                 value = client.capabilities(config(Path(directory)))
             profiles = {profile["id"]: profile for profile in value["profiles"]}
-            latent = profiles["z-image-turbo-int8-img2img"]
+            self.assertNotIn("z-image-turbo-int8-img2img", profiles)
+            latent = profiles["z-image-turbo-bf16-img2img"]
             self.assertTrue(latent["available"])
-            self.assertEqual(latent["missing_models"], [])
-            self.assertNotIn("image_lora", latent["required_models"])
             self.assertEqual(latent["reference_contract"]["min_count"], 1)
 
             placeholders = value["image"]["unavailable_profiles"]
@@ -284,18 +295,13 @@ class CapabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             client = ComfyClient("http://unused")
             with patch.object(client, "object_info", return_value=flux2_klein_object_info(installed=False)):
-                missing = {p["id"]: p for p in client.capabilities(config(Path(directory)))["profiles"]}["flux2-klein-4b-fp8"]
+                missing = {p["id"]: p for p in client.capabilities(config(Path(directory)))["profiles"]}["flux2-klein-9b-fp8"]
             self.assertFalse(missing["available"])
-            self.assertEqual(missing["missing_nodes"], [])
-            self.assertEqual(missing["missing_options"], [])
-            self.assertEqual(missing["missing_model_files"], [
-                "flux-2-klein-4b-fp8.safetensors", "qwen_3_4b.safetensors", "flux2-vae.safetensors",
-            ])
             self.assertEqual(missing["reference_contract"]["max_count"], 4)
 
             with patch.object(client, "object_info", return_value=flux2_klein_object_info(installed=True)):
                 profiles = {p["id"]: p for p in client.capabilities(config(Path(directory)))["profiles"]}
-            self.assertTrue(profiles["flux2-klein-4b-fp8"]["available"])
+            self.assertNotIn("flux2-klein-4b-fp8", profiles)
             self.assertFalse(profiles["flux2-klein-9b-fp8"]["available"])
             self.assertEqual(profiles["flux2-klein-9b-fp8"]["missing_model_files"], [
                 "flux-2-klein-9b-fp8.safetensors",
@@ -346,9 +352,9 @@ class CapabilityTests(unittest.TestCase):
             by_id = {profile["id"]: profile for profile in value["profiles"]}
             self.assertTrue(by_id["z-image-turbo-bf16-t2i"]["available"])
             self.assertTrue(by_id["z-image-turbo-bf16-img2img"]["available"])
-            self.assertTrue(by_id["z-image-turbo-int8-t2i"]["available"])
-            self.assertTrue(by_id["qwen-image-2512-fp8-t2i"]["available"])
-            self.assertTrue(by_id["qwen-image-edit-2511-int8"]["available"])
+            self.assertNotIn("z-image-turbo-int8-t2i", by_id)
+            self.assertNotIn("qwen-image-2512-fp8-t2i", by_id)
+            self.assertNotIn("qwen-image-edit-2511-int8", by_id)
             self.assertTrue(value["image"]["modes"]["text-to-image"])
             self.assertTrue(value["image"]["modes"]["image-to-image"])
     def test_choices_support_current_comfy_combo_schema(self) -> None:
